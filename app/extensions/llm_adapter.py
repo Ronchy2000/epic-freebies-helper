@@ -45,6 +45,56 @@ def _extract_json_payload(text: str) -> dict[str, Any]:
     return json.loads(stripped)
 
 
+def _normalize_glm_response_text(text: str) -> str:
+    stripped = text.strip()
+    if not stripped:
+        return stripped
+
+    if stripped.startswith("{") or stripped.startswith("```"):
+        return stripped
+
+    drag_match = re.search(
+        r"Source Position:\s*\((\d+)\s*,\s*(\d+)\)\s*,\s*Target Position:\s*\((\d+)\s*,\s*(\d+)\)",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    if drag_match:
+        sx, sy, tx, ty = map(int, drag_match.groups())
+        return (
+            "```json\n"
+            + json.dumps(
+                {
+                    "challenge_prompt": "",
+                    "paths": [
+                        {
+                            "start_point": {"x": sx, "y": sy},
+                            "end_point": {"x": tx, "y": ty},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
+            + "\n```"
+        )
+
+    point_matches = re.findall(r"\((\d+)\s*,\s*(\d+)\)", stripped)
+    if point_matches and ("position" in stripped.lower() or "point" in stripped.lower()):
+        points = [{"x": int(x), "y": int(y)} for x, y in point_matches]
+        return (
+            "```json\n"
+            + json.dumps(
+                {
+                    "challenge_prompt": "",
+                    "points": points,
+                },
+                ensure_ascii=False,
+            )
+            + "\n```"
+        )
+
+    return stripped
+
+
 class _UploadedFile:
     def __init__(self, uri: str, mime_type: str):
         self.name = uri
@@ -218,7 +268,7 @@ class _GLMAsyncModels:
                 response.raise_for_status()
             data = response.json()
 
-        text = self._extract_text(data)
+        text = _normalize_glm_response_text(self._extract_text(data))
         parsed = self._parse_response(text, config)
         return _PatchedResponse(text=text, parsed=parsed, raw=data)
 
