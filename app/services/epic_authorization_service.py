@@ -105,7 +105,7 @@ class EpicAuthorization:
             logger.success("Right account validation success")
             return True
         except Exception as err:
-            logger.warning(f"{err}")
+            logger.warning(f"Login attempt failed: {err!r}")
             sr = SCREENSHOTS_DIR.joinpath("authorization")
             sr.mkdir(parents=True, exist_ok=True)
             await self.page.screenshot(path=sr.joinpath(f"login-{int(time.time())}.png"))

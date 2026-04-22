@@ -439,6 +439,51 @@ class EpicGames:
 
         return "pending", None
 
+    @staticmethod
+    async def _is_checkout_security_check_visible(page: Page) -> bool:
+        markers = [
+            "ONE MORE STEP",
+            "PLEASE COMPLETE A SECURITY CHECK TO CONTINUE",
+            "PLEASE DRAG THE ICON ON THE BOTTOM TO THE PLACE WHERE IT FITS",
+            "SKIP",
+        ]
+        page_text = await EpicGames._page_text(page)
+        return any(marker in page_text for marker in markers)
+
+    async def _resolve_checkout_security_check(
+        self, page: Page, agent: AgentV, url: str, max_attempts: int = 3
+    ) -> bool:
+        if not await self._is_checkout_security_check_visible(page):
+            return True
+
+        logger.warning(f"Checkout security check detected - starting solve loop. {url=}")
+
+        for attempt in range(1, max_attempts + 1):
+            if not await self._is_checkout_security_check_visible(page):
+                logger.success(f"Checkout security check cleared before solve attempt {attempt} - {url=}")
+                return True
+
+            logger.info(f"Solving checkout security check ({attempt}/{max_attempts})")
+            await self._capture_purchase_debug(page, f"checkout_security_check_attempt_{attempt}", url)
+
+            try:
+                await agent.wait_for_challenge()
+            except Exception as err:
+                logger.warning(f"Checkout security check solve attempt failed ({attempt}/{max_attempts}): {err}")
+                await self._capture_purchase_debug(
+                    page, f"checkout_security_check_failed_{attempt}", url
+                )
+
+            await page.wait_for_timeout(1500)
+
+            if not await self._is_checkout_security_check_visible(page):
+                logger.success(f"Checkout security check solved successfully - {url=}")
+                return True
+
+        logger.warning(f"Checkout security check remained visible after retries - {url=}")
+        await self._capture_purchase_debug(page, "checkout_security_check_unresolved", url)
+        return False
+
     async def _handle_instant_checkout(self, page: Page, url: str) -> bool:
         logger.info("🚀 Triggering Instant Checkout Flow...")
         agent = AgentV(page=page, agent_config=settings)
@@ -458,15 +503,19 @@ class EpicGames:
             logger.debug(f"Clicking payment button: {await payment_btn.text_content()}")
             await payment_btn.click(force=True)
             await page.wait_for_timeout(3000)
-            
-            try:
-                logger.debug("Checking for CAPTCHA...")
-                await agent.wait_for_challenge()
-            except Exception as e:
-                logger.info(f"CAPTCHA detection skipped (Likely no CAPTCHA needed): {e}")
+
+            if await self._is_checkout_security_check_visible(page):
+                if not await self._resolve_checkout_security_check(page, agent, url):
+                    return False
+            else:
+                logger.debug("No checkout security check detected after Place Order")
 
             for _ in range(2):
                 await self._handle_device_not_supported_modal(page, url, timeout_ms=3000)
+
+                if await self._is_checkout_security_check_visible(page):
+                    if not await self._resolve_checkout_security_check(page, agent, url):
+                        return False
 
                 if await self._is_claimed_state(page, url):
                     logger.success(f"🎉 Instant checkout confirmed claim state - {url=}")
