@@ -1,17 +1,21 @@
-# Epic 周免助手
+<div align="center">
+  <h1>Epic 周免助手</h1>
+  <p>An Epic Games weekly-freebies claimer for GitHub Actions.</p>
 
-An Epic Games weekly-freebies claimer for GitHub Actions.
+  <p>
+    <a href="https://github.com/Ronchy2000/epic-freebies-helper/actions/workflows/epic-gamer.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ronchy2000/epic-freebies-helper/epic-gamer.yml?branch=master&style=flat-square" alt="Workflow Status" /></a>
+    <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12-blue?style=flat-square" alt="Python" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/Ronchy2000/epic-freebies-helper?style=flat-square" alt="License" /></a>
+    <a href="https://github.com/Ronchy2000/epic-freebies-helper/stargazers"><img src="https://img.shields.io/github/stars/Ronchy2000/epic-freebies-helper?style=flat-square" alt="Stars" /></a>
+    <a href="https://visitor-badge.laobi.icu/badge?page_id=Ronchy2000.epic-freebies-helper"><img src="https://visitor-badge.laobi.icu/badge?page_id=Ronchy2000.epic-freebies-helper&left_text=views" alt="Views" /></a>
+  </p>
+</div>
 
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/Ronchy2000/epic-awesome-gamer/epic-gamer.yml?branch=master&style=flat-square)](https://github.com/Ronchy2000/epic-awesome-gamer/actions/workflows/epic-gamer.yml)
-[![Python](https://img.shields.io/badge/python-3.12-blue?style=flat-square)](https://www.python.org/)
-[![License](https://img.shields.io/github/license/Ronchy2000/epic-awesome-gamer?style=flat-square)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/Ronchy2000/epic-awesome-gamer?style=flat-square)](https://github.com/Ronchy2000/epic-awesome-gamer/stargazers)
+面向普通用户的 Epic 周免自动领取项目，默认通过 GitHub Actions 运行，不需要服务器或本地常驻环境；只要有 GitHub 账号，就可以直接开始。
 
-一个面向普通用户的 Epic 周免自动领取项目，最佳使用方式是直接跑在 GitHub Actions 上。
+本项目基于社区开源方案持续完善，并接入了国产 `GLM` 多模态模型。实测可稳定处理登录、验证码和领取流程；对于不方便注册 Google AI Studio、难以使用 Gemini API 的用户，GLM 路线更省心，`0` 成本即可跑通。
 
-很多同类项目会优先使用 Google AI Studio 的 Gemini API，或者通过 AiHubMix 中转模型能力；这个项目更推荐直接使用 `GLM`。原因很简单：`glm-4.6v-flash` 是智谱官方免费视觉模型，如果你想尽量做到 `0` 成本上手，直接用它最合适；如果你账号里有新用户赠送额度，`glm-4.5v` 也通常足够把登录、验证码和领取流程跑通。
-
-还没有智谱账号的话，可以直接通过这个邀请链接注册：[BigModel.cn 邀请注册链接](https://www.bigmodel.cn/invite?icode=A75tQCByIvrO4k6SLkU5BQZ3c5owLmCCcMQXWcJRS8E%3D)。
+还没有智谱账号的话，可以通过这个邀请链接注册：[BigModel.cn 邀请注册链接](https://www.bigmodel.cn/invite?icode=A75tQCByIvrO4k6SLkU5BQZ3c5owLmCCcMQXWcJRS8E%3D)。
 
 ---
 
@@ -25,36 +29,26 @@ An Epic Games weekly-freebies claimer for GitHub Actions.
 | 验证码处理 | 支持登录验证码和 checkout 二次安全校验 |
 | 定时执行 | 可直接使用 GitHub Actions 定时运行 |
 
-默认最推荐的运行方式是 GitHub Actions，因为它不需要自己开电脑挂机，仓库也已经带好了可直接使用的工作流。
+推荐运行方式是 GitHub Actions，因为它不需要自己开电脑挂机，仓库也已经带好了可直接使用的工作流。
 
 ---
 
 ## 为什么推荐 GLM
 
-如果你是第一次接触这类项目，最推荐直接使用 GLM。
+如果你是第一次接触这类项目，直接从 GLM 开始会更容易跑通。核心原因很简单：
 
-| 原因 | 说明 |
-| --- | --- |
-| 门槛最低 | 只需要配置 `GLM_API_KEY` 和 `GLM_MODEL`，默认值已经帮你兜好 |
-| 免费路线最清晰 | 智谱官方提供免费视觉模型 [`glm-4.6v-flash`](https://docs.bigmodel.cn/cn/guide/models/free/glm-4.6v-flash)，直接可用 |
-| 新人更容易跑通 | 如果你有新用户赠送额度，`glm-4.5v` 通常也足够跑通周免流程 |
-| 比 Gemini 路线更省心 | 不用额外折腾 Gemini 的地区、配额和账号环境问题 |
-| 比中转方案更直接 | 直接对接智谱官方接口，配置简单，排障路径也更清楚 |
-| 能力够用 | 可以直接处理登录验证码和 checkout 二次验证 |
-| 适配已经打通 | 当前仓库已经针对 GLM 的拖拽题、点选题和多选题做了兼容 |
-
-如果你只是想尽快跑通一次周免领取，优先从 GLM 开始通常是最省心的选择。
+- 配置更少：主要只要设置 `GLM_API_KEY` 和 `GLM_MODEL`。
+- 成本更低：`glm-4.6v-flash` 和 `glm-4.5v` 的免费额度足够覆盖周免领取场景。
+- 对国内用户更友好：不需要先解决 Google AI Studio 注册和可用性问题。
+- 能力已验证：登录验证码、checkout 二次验证、拖拽/点选/多选题都能正常处理。
 
 ---
 
 ## 使用前先确认
 
-| 项目 | 是否必须 | 说明 |
-| --- | --- | --- |
-| Epic 账号邮箱 | 是 | 用来登录 Epic |
-| Epic 账号密码 | 是 | 用来登录 Epic |
-| 关闭 2FA | 是 | 必须关闭邮箱 / 短信 / App 二次验证 |
-| 多模态模型 API Key | 是 | 用来识别 hCaptcha |
+- Epic 账号邮箱与密码（用于登录）。
+- 关闭 Epic 账号 2FA（邮箱/短信/验证器）。
+- 注册 GLM 并准备 `GLM_API_KEY`（用于验证码识别）。
 
 这个项目运行在无头自动化环境里。  
 如果账号开启了邮箱验证码、短信验证码、验证器 App 等二次验证，流程通常会被卡住。
@@ -63,76 +57,44 @@ An Epic Games weekly-freebies claimer for GitHub Actions.
 
 ## 🚀 快速开始
 
-### 1. Fork 仓库
+只做下面 4 步，通常 10 分钟内就能完成首次验证。
 
-把这个仓库 Fork 到你自己的 GitHub 账号下。
+### 1. Fork 并启用 Actions
 
-建议 Fork 完后立刻改成私有仓库，这样更适合保存自己的 Actions 配置，也更不容易误暴露运行记录。
+- Fork 到自己的 GitHub 账号，建议改为私有仓库。
+- 打开 `Actions`，启用工作流 `Epic Awesome Gamer (Scheduled)`。
 
-### 2. 启用 GitHub Actions
+### 2. 配置 Secrets
 
-进入你自己的 Fork 仓库后：
+进入 `Settings` -> `Secrets and variables` -> `Actions`，先填这 5 个：
 
-1. 打开 `Actions`
-2. 如果 GitHub 提示是否启用工作流，点击启用
+| Secret | 示例值 |
+| --- | --- |
+| `EPIC_EMAIL` | 你的 Epic 邮箱 |
+| `EPIC_PASSWORD` | 你的 Epic 密码 |
+| `LLM_PROVIDER` | glm |
+| `GLM_API_KEY` | 你的智谱 API Key |
+| `GLM_MODEL` | glm-4.6v-flash |
 
-工作流名称是 `Epic Awesome Gamer (Scheduled)`，默认每天执行一次，也支持手动触发。
+配置页面示例：
 
-### 3. 配置 Secrets
+![GitHub Actions Secrets 配置示例](docs/images/tutorial/step2-actions-secrets.png)
 
-进入 `Settings` -> `Secrets and variables` -> `Actions`。
+可选项：
 
-#### 推荐配置：GLM
+- `GLM_BASE_URL` 留空即可使用默认值。
+- `CHALLENGE_CLASSIFIER_MODEL`、`IMAGE_CLASSIFIER_MODEL`、`SPATIAL_POINT_REASONER_MODEL`、`SPATIAL_PATH_REASONER_MODEL` 留空即可跟随 `GLM_MODEL`。
+- 如果要改 Gemini 路线，把 `LLM_PROVIDER` 设为 `gemini` 并配置 `GEMINI_API_KEY`。
 
-| Secret | 必填 | 示例 | 说明 |
-| --- | --- | --- | --- |
-| `EPIC_EMAIL` | 是 | `you@example.com` | Epic 登录邮箱 |
-| `EPIC_PASSWORD` | 是 | `your-password` | Epic 登录密码 |
-| `LLM_PROVIDER` | 是 | `glm` | 明确指定使用 GLM |
-| `GLM_API_KEY` | 是 | `xxxxxxxx` | 智谱 API Key |
-| `GLM_MODEL` | 是 | `glm-4.6v-flash` | 视觉模型名 |
-| `GLM_BASE_URL` | 否 | `https://open.bigmodel.cn/api/paas/v4` | 不填就走默认值 |
-| `CHALLENGE_CLASSIFIER_MODEL` | 否 | 留空 | 留空时跟随 `GLM_MODEL` |
-| `IMAGE_CLASSIFIER_MODEL` | 否 | 留空 | 留空时跟随 `GLM_MODEL` |
-| `SPATIAL_POINT_REASONER_MODEL` | 否 | 留空 | 留空时跟随 `GLM_MODEL` |
-| `SPATIAL_PATH_REASONER_MODEL` | 否 | 留空 | 留空时跟随 `GLM_MODEL` |
+### 3. 手动运行一次
 
-最小可用配置如下：
+- 进入 `Actions` 页面。
+- 选择 `Epic Awesome Gamer (Scheduled)`。
+- 点击 `Run workflow`。
 
-```text
-EPIC_EMAIL=你的 Epic 邮箱
-EPIC_PASSWORD=你的 Epic 密码
-LLM_PROVIDER=glm
-GLM_API_KEY=你的智谱 API Key
-GLM_MODEL=glm-4.6v-flash
-```
+### 4. 看日志确认是否跑通
 
-如果你不知道该填哪个模型，直接从 `glm-4.6v-flash` 开始即可。
-
-#### 可选配置：Gemini / AiHubMix
-
-| Secret | 必填 | 示例 | 说明 |
-| --- | --- | --- | --- |
-| `EPIC_EMAIL` | 是 | `you@example.com` | Epic 登录邮箱 |
-| `EPIC_PASSWORD` | 是 | `your-password` | Epic 登录密码 |
-| `LLM_PROVIDER` | 建议 | `gemini` | 建议显式指定 |
-| `GEMINI_API_KEY` | 是 | `xxxxxxxx` | Gemini 或 AiHubMix Key |
-| `GEMINI_BASE_URL` | 否 | `https://aihubmix.com` | 不填就走默认值 |
-| `GEMINI_MODEL` | 否 | `gemini-2.5-pro` | 不填就走默认值 |
-
-### 4. 手动运行一次
-
-进入 `Actions` 页面后：
-
-1. 选择 `Epic Awesome Gamer (Scheduled)`
-2. 点击 `Run workflow`
-3. 等待运行完成
-
-第一次手动跑的目的很明确：先确认 Secrets 配对正确、Epic 账号可以正常登录、模型也确实能识别当前验证码。
-
-### 5. 确认结果
-
-如果领取成功，常见日志通常会接近下面这种状态：
+成功时日志通常会出现类似内容：
 
 ```text
 Login success
@@ -141,6 +103,14 @@ Authentication completed
 Starting free games collection process
 All week-free games are already in the library
 ```
+
+说明：流程中间偶尔会看到报错（例如 `wait for captcha response timeout` 或 `btoa is read-only`），这在当前场景下可能是正常噪声；只要最后出现成功日志并正常结束，就可以视为本次执行成功。
+
+示例日志（中间有报错但最终成功）：
+
+![中间报错但最终成功的日志示例 1](docs/images/tutorial/step4-log-success-with-warnings-1.png)
+
+![中间报错但最终成功的日志示例 2](docs/images/tutorial/step4-log-success-with-warnings-2.png)
 
 ---
 
@@ -181,7 +151,7 @@ All week-free games are already in the library
 
 现在项目已经能处理这类二次安全验证。你看到下面这种弹窗，不代表脚本坏了：
 
-![Checkout Security Check](docs/images/checkout-security-check.png)
+![Checkout Security Check](docs/images/faq/checkout-security-check.png)
 
 ### 3. 页面提示 `Device not supported`
 
@@ -212,8 +182,8 @@ All week-free games are already in the library
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/Ronchy2000/epic-awesome-gamer.git
-cd epic-awesome-gamer
+git clone https://github.com/Ronchy2000/epic-freebies-helper.git
+cd epic-freebies-helper
 ```
 
 ### 2. 修改配置
@@ -258,7 +228,7 @@ docker compose up -d --build
 
 ## 致谢
 
-这个项目的实现和整理，直接受到了下面两个仓库的启发：
+本项目基于 `QIN2DIM/epic-awesome-gamer` 实现，并参考了 `10000ge10000/epic-kiosk`：
 
 | 项目 | 说明 |
 | --- | --- |
@@ -274,3 +244,9 @@ docker compose up -d --build
 - 本项目仅用于学习和研究自动化流程。
 - 自动化操作可能违反相关平台的服务条款，请自行评估风险。
 - 使用本项目产生的后果由使用者自行承担。
+
+---
+
+## Star 趋势
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Ronchy2000/epic-freebies-helper&type=Date)](https://star-history.com/#Ronchy2000/epic-freebies-helper&Date)
