@@ -28,6 +28,8 @@
 
 如果你已经成功跑通，也欢迎来这里留言打卡：[🎉 成功反馈 / Success Stories](https://github.com/Ronchy2000/epic-freebies-helper/discussions/3)。
 
+如果你遇到报错，也欢迎直接提 [Issue](https://github.com/Ronchy2000/epic-freebies-helper/issues)。当然，是否继续使用完全由你决定；但如果你愿意留下反馈，而不是直接删库放弃，这些真实问题和使用体验，都会帮助这个项目继续改进，也会成为我们一起把它做得更稳的动力。
+
 ---
 
 ## 功能概览

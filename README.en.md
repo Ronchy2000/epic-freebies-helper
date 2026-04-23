@@ -28,6 +28,8 @@ Community discussion and feedback are welcome on [LINUX DO](https://linux.do/t/t
 
 If the project worked for you, feel free to leave a message here too: [🎉 Success Stories / Successful runs](https://github.com/Ronchy2000/epic-freebies-helper/discussions/3).
 
+If you run into an error, please feel free to open an [Issue](https://github.com/Ronchy2000/epic-freebies-helper/issues). The choice is always yours, and I respect that; still, if you are willing to leave feedback instead of deleting the repo and walking away, those real reports and user experiences directly help improve the project and keep this effort moving forward.
+
 ---
 
 ## Feature Overview
