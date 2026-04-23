@@ -178,7 +178,13 @@ All week-free games are already in the library
 
 另外，不要看到运行了几分钟还没结束就手动点 `Cancel workflow`。有些成功案例会在大量重试后，10 到 20 分钟才最终通过。
 
-### 2. 页面弹出 `One more step`
+### 2. 日志里出现 `privacy-policy correction` 或卡在隐私政策页面
+
+这通常不是模型接口问题，而是 Epic 账号状态问题。某些账号在登录成功后，会被额外重定向到类似 `/id/login/correction/privacy-policy` 的页面，要求先确认一次隐私政策。
+
+处理方式很简单：先在你自己的正常浏览器里手动登录 Epic，完成这个确认页，然后再重新运行 Actions。
+
+### 3. 页面弹出 `One more step`
 
 这不是异常，是 Epic 结账阶段追加的人机校验。
 
@@ -186,11 +192,11 @@ All week-free games are already in the library
 
 ![Checkout Security Check](docs/images/faq/checkout-security-check.png)
 
-### 3. 页面提示 `Device not supported`
+### 4. 页面提示 `Device not supported`
 
 这个提示通常出现在商品只支持 Windows，而 GitHub Actions 运行环境是 Linux 的时候。
 
-### 4. 为什么工作流显示成功，但游戏没入库
+### 5. 为什么工作流显示成功，但游戏没入库
 
 过去常见根因有：
 

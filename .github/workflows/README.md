@@ -93,7 +93,13 @@ GitHub 的共享出口 IP 可能被 Epic 风控。通常换个时间重新执行
 
 ![不要过早取消 Actions 运行](../../docs/images/faq/action-cancel-too-early.svg)
 
-### 2. GLM 报 429/400/401
+### 2. 日志里出现 `privacy-policy correction`
+
+这通常不是 `GLM`、`Gemini` 或 `AiHubMix` 的接口问题，而是 Epic 账号登录后被重定向到了 `/id/login/correction/privacy-policy` 这类确认页面。
+
+处理方式：先在你自己的浏览器里手动登录 Epic，一次性完成隐私政策确认页，然后再重新运行 workflow。
+
+### 3. GLM 报 429/400/401
 
 优先检查：
 
@@ -107,7 +113,7 @@ GitHub 的共享出口 IP 可能被 Epic 风控。通常换个时间重新执行
 
 ![GLM 429 rate limit log](../../docs/images/faq/glm-429-rate-limit.png)
 
-### 3. 为什么每天跑一次而不是每周跑一次
+### 4. 为什么每天跑一次而不是每周跑一次
 
 GitHub Actions 每天跑一次更稳妥。脚本内部会判断是否有新的周免内容，没有的话会直接结束。
 

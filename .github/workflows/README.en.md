@@ -95,7 +95,13 @@ If the logs are still retrying captcha challenges, do not click `Cancel workflow
 
 ![Do not cancel the Actions run too early](../../docs/images/faq/action-cancel-too-early.svg)
 
-### 2. GLM returns 429 / 400 / 401
+### 2. Logs mention `privacy-policy correction`
+
+This is usually not a `GLM`, `Gemini`, or `AiHubMix` API issue. It means the Epic account was redirected after login to a page like `/id/login/correction/privacy-policy`.
+
+Fix it by signing in to Epic once in a normal browser, completing the privacy-policy confirmation page manually, and then rerunning the workflow.
+
+### 3. GLM returns 429 / 400 / 401
 
 Check these items first:
 
@@ -109,6 +115,6 @@ Example log for a 429 rate-limit case:
 
 ![GLM 429 rate limit log](../../docs/images/faq/glm-429-rate-limit.png)
 
-### 3. Why run daily instead of weekly?
+### 4. Why run daily instead of weekly?
 
 Running once per day is safer on GitHub Actions. The script itself decides whether there is any new weekly free content and exits quickly when there is nothing to claim.

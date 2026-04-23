@@ -166,7 +166,13 @@ That is normal. GitHub Actions uses shared cloud IPs and Epic is sensitive to ri
 
 Also, do not hit `Cancel workflow` just because the run has been active for a few minutes. Some successful cases only finish after heavy retry loops and can take 10 to 20 minutes.
 
-### 2. The page shows `One more step`
+### 2. Logs mention `privacy-policy correction` or the run gets stuck on a privacy-policy page
+
+This is usually not a model-provider issue. It is an Epic account state issue. Some accounts are redirected after login to a page like `/id/login/correction/privacy-policy`, which requires a one-time privacy-policy confirmation.
+
+The fix is simple: sign in to Epic once in a normal browser, complete that confirmation page manually, and then rerun the workflow.
+
+### 3. The page shows `One more step`
 
 This is not automatically a bug. It is Epic's extra human-verification step during checkout.
 
@@ -174,11 +180,11 @@ The project can already handle this secondary verification. Seeing the popup bel
 
 ![Checkout Security Check](docs/images/faq/checkout-security-check.png)
 
-### 3. The page shows `Device not supported`
+### 4. The page shows `Device not supported`
 
 This usually happens when the product officially supports Windows while GitHub Actions is running on Linux.
 
-### 4. Why can the workflow report success while the game is not in the library?
+### 5. Why can the workflow report success while the game is not in the library?
 
 Historically, the common root causes were:
 
