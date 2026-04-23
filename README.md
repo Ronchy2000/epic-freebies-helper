@@ -101,6 +101,7 @@
 - 推荐把 `GLM_MODEL` 设为 `glm-4.6v`；`glm-4.6v-flash` 在高峰期可能报“该模型当前访问量过大，请您稍后重试”。
 - `CHALLENGE_CLASSIFIER_MODEL`、`IMAGE_CLASSIFIER_MODEL`、`SPATIAL_POINT_REASONER_MODEL`、`SPATIAL_PATH_REASONER_MODEL` 留空即可跟随 `GLM_MODEL`。
 - 如果要改 Gemini 路线，把 `LLM_PROVIDER` 设为 `gemini` 并配置 `GEMINI_API_KEY`。
+- 走 `GLM` 路线时不需要额外再填 `GEMINI_API_KEY`。
 
 ### 3. 手动运行一次
 
@@ -135,12 +136,13 @@ All week-free games are already in the library
 
 ## 运行日志与 Artifact
 
-每次 GitHub Actions 运行结束后，工作流会自动上传两个 artifact：
+每次 GitHub Actions 运行结束后，工作流会自动上传三个 artifact：
 
 | Artifact | 内容 |
 | --- | --- |
 | `epic-runtime-<run_id>` | 运行期截图、debug 文本、purchase_debug |
 | `epic-logs-<run_id>` | 运行日志 |
+| `epic-screenshots-<run_id>` | 登录失败、风控页、授权页等额外截图 |
 
 下载位置：
 
@@ -162,13 +164,27 @@ All week-free games are already in the library
 
 1. 打开出问题的 GitHub Actions 运行页面。
 2. 拉到页面底部，找到 `Artifacts`。
-3. 下载这两个文件：
+3. 下载这些文件：
    - `epic-logs-<run_id>.zip`
    - `epic-runtime-<run_id>.zip`
+   - `epic-screenshots-<run_id>.zip`
 4. 新建 issue。
-5. 把这两个 zip 直接拖进 issue 编辑框，或者点击附件按钮上传。
+5. 把这些 zip 直接拖进 issue 编辑框，或者点击附件按钮上传。
 
-这两个 zip 里通常已经包含定位问题所需的完整日志、截图和 `purchase_debug` 文本。GitHub issue 支持直接上传 `.zip` 文件。
+这些 zip 里通常已经包含定位问题所需的完整日志、截图和 `purchase_debug` 文本。GitHub issue 支持直接上传 `.zip` 文件。
+
+---
+
+## 本地单次调试
+
+如果你想在本地复现和 GitHub Actions 相同的入口，可以直接用仓库内置单次执行方式：
+
+1. 复制 [`.env.example`](.env.example) 为 `.env`
+2. 填好你自己的账号和模型配置
+3. 执行 `uv sync --group dev`
+4. 执行 `ENABLE_APSCHEDULER=false uv run app/deploy.py`
+
+`.env`、`.venv`、`app/volumes/` 都已经被 `.gitignore` 忽略，不会被提交到 GitHub。
 
 ---
 

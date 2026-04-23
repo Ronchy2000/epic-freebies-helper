@@ -101,6 +101,7 @@ Optional notes:
 - `glm-4.6v` is the recommended `GLM_MODEL`; `glm-4.6v-flash` can fail during peak traffic.
 - Leave `CHALLENGE_CLASSIFIER_MODEL`, `IMAGE_CLASSIFIER_MODEL`, `SPATIAL_POINT_REASONER_MODEL`, and `SPATIAL_PATH_REASONER_MODEL` empty if you want them to follow `GLM_MODEL`.
 - If you want the Gemini route instead, set `LLM_PROVIDER=gemini` and configure `GEMINI_API_KEY`.
+- The `GLM` path does not require an extra `GEMINI_API_KEY`.
 
 ### 3. Run the workflow manually once
 
@@ -135,12 +136,13 @@ If the logs show repeated retries and you cancel the run manually, like the exam
 
 ## Run Logs and Artifacts
 
-Each GitHub Actions run uploads two artifacts automatically:
+Each GitHub Actions run uploads three artifacts automatically:
 
 | Artifact | Content |
 | --- | --- |
 | `epic-runtime-<run_id>` | Runtime screenshots, debug text, and `purchase_debug` files |
 | `epic-logs-<run_id>` | Runtime logs |
+| `epic-screenshots-<run_id>` | Extra screenshots for login failures, risk-control pages, and auth debugging |
 
 Download location:
 
@@ -157,6 +159,19 @@ What to inspect first:
 | `epic-logs-<run_id>.zip` | After extraction, open the log files directly |
 
 These files are generated and uploaded after each GitHub Actions run. They are not fixed directories pre-shipped in the repository root.
+
+---
+
+## Local One-Shot Debugging
+
+If you want to reproduce the same entrypoint locally, use the repository's built-in one-shot run path:
+
+1. Copy [`.env.example`](.env.example) to `.env`
+2. Fill in your own account and model configuration
+3. Run `uv sync --group dev`
+4. Run `ENABLE_APSCHEDULER=false uv run app/deploy.py`
+
+`.env`, `.venv`, and `app/volumes/` are already ignored by `.gitignore`, so they will not be committed to GitHub.
 
 ---
 

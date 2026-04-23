@@ -83,4 +83,7 @@ async def open_browser_context(headless: bool | str) -> AsyncIterator[BrowserCon
         try:
             yield browser
         finally:
-            await browser.close()
+            try:
+                await browser.close()
+            except Exception:
+                pass

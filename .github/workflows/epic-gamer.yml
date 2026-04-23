@@ -12,7 +12,7 @@ env:
 jobs:
   epic-gamer:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     
     # 🔴 [核心修改] 只有当仓库不是 '10000ge10000/epic-awesome-gamer' 时才运行
     # 效果：你的仓库触发定时任务会直接显示 Skipped (灰色)，别人 Fork 后会正常运行 (绿色)
@@ -38,11 +38,16 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      # 增加 GITHUB_TOKEN 以解决 Camoufox 下载时的 403 频率限制
+      # 增加 GITHUB_TOKEN 以降低 Camoufox 下载时的 403 频率限制。
+      # 即使这里失败，运行时也可以回退到 Playwright Firefox。
       - name: Install Camoufox
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run camoufox fetch
+
+      - name: Install Playwright Firefox fallback
+        run: uv run playwright install firefox
 
       - name: Run Epic Awesome Gamer
         env:
@@ -59,8 +64,11 @@ jobs:
           IMAGE_CLASSIFIER_MODEL: ${{ secrets.IMAGE_CLASSIFIER_MODEL }}
           SPATIAL_POINT_REASONER_MODEL: ${{ secrets.SPATIAL_POINT_REASONER_MODEL }}
           SPATIAL_PATH_REASONER_MODEL: ${{ secrets.SPATIAL_PATH_REASONER_MODEL }}
+          BROWSER_BACKEND: auto
           # 在 Actions 中我们依靠 GitHub 的 cron 触发，所以关闭内部调度器
           ENABLE_APSCHEDULER: false
+          MPLBACKEND: Agg
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHONPATH: app
         run: |
           echo "🚀 启动定时领取任务（支持 Gemini/AiHubMix/GLM）..."
@@ -80,4 +88,12 @@ jobs:
         with:
           name: epic-logs-${{ github.run_id }}
           path: app/volumes/logs/
+          retention-days: 7
+
+      - name: Upload screenshot artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: epic-screenshots-${{ github.run_id }}
+          path: app/volumes/screenshots/
           retention-days: 7

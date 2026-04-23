@@ -29,6 +29,7 @@ class EpicAuthorization:
         self.page = page
 
         self._is_login_success_signal = asyncio.Queue()
+        self._login_error_signal = asyncio.Queue()
         self._is_refresh_csrf_signal = asyncio.Queue()
 
     async def _on_response_anything(self, r: Response):
@@ -40,6 +41,7 @@ class EpicAuthorization:
             result_json = json.dumps(result, indent=2, ensure_ascii=False)
 
             if "/id/api/login" in r.url and result.get("errorCode"):
+                self._login_error_signal.put_nowait(result)
                 logger.error(f"{r.request.method} {r.url} - {result_json}")
             elif "/id/api/analytics" in r.url and result.get("accountId"):
                 self._is_login_success_signal.put_nowait(result)
@@ -47,6 +49,12 @@ class EpicAuthorization:
                 self._is_refresh_csrf_signal.put_nowait(result)
             # else:
             #     logger.debug(f"{r.request.method} {r.url} - {result_json}")
+
+    @staticmethod
+    def _drain_queue(queue: asyncio.Queue):
+        while not queue.empty():
+            with suppress(Exception):
+                queue.get_nowait()
 
     async def _handle_right_account_validation(self):
         """
@@ -127,6 +135,40 @@ class EpicAuthorization:
 
         raise PlaywrightTimeoutError("Timed out waiting for Epic login form")
 
+    async def _await_login_outcome(self, point_url: str) -> None:
+        deadline = time.monotonic() + 60
+
+        while time.monotonic() < deadline:
+            if "true" == await self._get_login_status():
+                return
+
+            if self._needs_privacy_policy_correction():
+                raise RuntimeError("privacy_policy_confirmation_required")
+
+            if not self._login_error_signal.empty():
+                result = await self._login_error_signal.get()
+                error_code = result.get("errorCode", "unknown_error")
+
+                if error_code == "errors.com.epicgames.accountportal.csrf_token_invalid":
+                    logger.warning(
+                        "Epic login returned csrf_token_invalid, refreshing login entry and retrying | url='{}'",
+                        self.page.url,
+                    )
+                    await self.page.context.clear_cookies()
+                    await self.page.goto(point_url, wait_until="domcontentloaded")
+                    await self._wait_for_login_form(point_url)
+                    raise RuntimeError(error_code)
+
+                raise RuntimeError(error_code)
+
+            if not self._is_login_success_signal.empty():
+                await self._is_login_success_signal.get()
+                return
+
+            await self.page.wait_for_timeout(500)
+
+        raise PlaywrightTimeoutError("Timed out waiting for Epic login outcome")
+
     async def _get_login_status(self) -> str | None:
         if self._needs_privacy_policy_correction():
             return None
@@ -148,6 +190,10 @@ class EpicAuthorization:
         logger.debug("Login with Email")
 
         try:
+            self._drain_queue(self._is_login_success_signal)
+            self._drain_queue(self._login_error_signal)
+            self._drain_queue(self._is_refresh_csrf_signal)
+
             point_url = "https://www.epicgames.com/account/personal?lang=en-US&productName=egs&sessionInvalidated=true"
             await self.page.goto(point_url, wait_until="domcontentloaded")
             await self._wait_for_login_form(point_url)
@@ -171,8 +217,8 @@ class EpicAuthorization:
             # Active hCaptcha challenge
             await agent.wait_for_challenge()
 
-            # Wait for the page to redirect
-            await asyncio.wait_for(self._is_login_success_signal.get(), timeout=60)
+            # Wait for the page to redirect or surface an explicit Epic login error.
+            await self._await_login_outcome(point_url)
             logger.success("Login success")
 
             await asyncio.wait_for(self._handle_right_account_validation(), timeout=60)

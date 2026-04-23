@@ -28,6 +28,15 @@ def _env(name: str, default: str | None = None) -> str | None:
     value = value.strip()
     return value or default
 
+
+def _coerce_secret_input(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, SecretStr):
+        value = value.get_secret_value()
+    value = str(value).strip()
+    return value or None
+
 # === 配置类定义 ===
 class EpicSettings(AgentConfig):
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
@@ -92,6 +101,25 @@ class EpicSettings(AgentConfig):
     CELERY_WORKER_CONCURRENCY: int = Field(default=1)
     CELERY_TASK_TIME_LIMIT: int = Field(default=1200)
     CELERY_TASK_SOFT_TIME_LIMIT: int = Field(default=900)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _bridge_provider_credentials(cls, raw_data):
+        data = dict(raw_data) if isinstance(raw_data, dict) else {}
+
+        provider = str(data.get("LLM_PROVIDER") or "").strip().lower()
+        glm_key = _coerce_secret_input(data.get("GLM_API_KEY"))
+        gemini_key = _coerce_secret_input(data.get("GEMINI_API_KEY"))
+
+        if provider not in {"gemini", "glm"}:
+            data["LLM_PROVIDER"] = "glm" if glm_key else "gemini"
+
+        # `hcaptcha-challenger` still expects GEMINI_API_KEY in its base settings model.
+        # Seed it before field validation so GLM-only environments work in local runs and CI.
+        if gemini_key is None and glm_key is not None:
+            data["GEMINI_API_KEY"] = glm_key
+
+        return data
 
     @model_validator(mode="after")
     def _apply_runtime_defaults(self):
