@@ -15,9 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     
-    # 🔴 [核心修改] 只有当仓库不是 '10000ge10000/epic-awesome-gamer' 时才运行
-    # 效果：你的仓库触发定时任务会直接显示 Skipped (灰色)，别人 Fork 后会正常运行 (绿色)
-    if: github.repository != '10000ge10000/epic-awesome-gamer'
+    # 默认不在主仓库自身执行定时任务；Fork 后的仓库会正常运行。
+    if: github.repository != 'Ronchy2000/epic-freebies-helper'
 
     steps:
       - name: Checkout repository
@@ -74,6 +73,19 @@ jobs:
         run: |
           echo "🚀 启动定时领取任务（支持 Gemini/AiHubMix/GLM）..."
           xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' uv run app/deploy.py
+
+      - name: Write success summary
+        if: success()
+        run: |
+          {
+            echo "## Run completed"
+            echo
+            echo "The workflow completed successfully."
+            echo
+            echo "- Share successful runs here: [Share your successful runs here / 成功领取的来这里留言！ #3](https://github.com/Ronchy2000/epic-freebies-helper/discussions/3)"
+            echo "- If the game was already in your library, Epic may not send a separate confirmation email. Review the logs and artifacts when verification is needed."
+            echo "- If you later report an issue from a private fork, upload the artifact zip files because maintainers cannot access private Actions pages."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload runtime artifacts
         if: always()

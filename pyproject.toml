@@ -1,5 +1,5 @@
 [project]
-name = "epic-awesome-gamer"
+name = "epic-freebies-helper"
 version = "0.4.1"
 dependencies = [
     "apscheduler>=3.11.0",
@@ -9,12 +9,12 @@ dependencies = [
 ]
 requires-python = ">=3.12,<=3.13"
 authors = [
-    { name = "QIN2DIM", email = "yaoqinse@gmail.com" }
+    { name = "Ronchy2000" }
 ]
 description = "🍷 Gracefully claim weekly free games from Epic Store."
 readme = "README.md"
 license = "GPL-3.0-or-later"
-keywords = ["epic", "epic-awesome-gamer", "epic-games-store"]
+keywords = ["epic", "epic-freebies-helper", "epic-games-store"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -31,11 +31,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/QIN2DIM/epic-awesome-gamer"
-Documentation = "https://github.com/QIN2DIM/epic-awesome-gamer"
-Repository = "https://github.com/QIN2DIM/epic-awesome-gamer.git"
-Issues = "https://github.com/QIN2DIM/epic-awesome-gamer/issues"
-Changelog = "https://github.com/QIN2DIM/epic-awesome-gamer/blob/master/CHANGELOG.md"
+Homepage = "https://github.com/Ronchy2000/epic-freebies-helper"
+Documentation = "https://github.com/Ronchy2000/epic-freebies-helper"
+Repository = "https://github.com/Ronchy2000/epic-freebies-helper.git"
+Issues = "https://github.com/Ronchy2000/epic-freebies-helper/issues"
+Changelog = "https://github.com/Ronchy2000/epic-freebies-helper/blob/master/docs/maintenance-log.md"
 
 [tool.black]
 line-length = 100

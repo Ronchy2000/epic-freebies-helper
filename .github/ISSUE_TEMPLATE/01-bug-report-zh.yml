@@ -7,17 +7,30 @@ body:
   - type: markdown
     attributes:
       value: |
-        提交前请先提供本次运行的 GitHub Actions 链接即可，不需要手动下载 artifact。
+        提交前请先区分仓库可见性：
 
-        查找方法：
-        打开你这次失败或异常的 workflow 运行页面，进入具体 job 页面后，直接复制浏览器地址栏链接并粘贴到下面，一般链接形如 `https://github.com/<your-account>/<your-repo>/actions/runs/24829120566/job/72672761254`；维护者会根据这个链接进入 Actions 页面查看完整日志和运行产物。
+        - 如果你的 fork 是公开仓库，请提供本次运行的 GitHub Actions 链接。
+        - 如果你的 fork 是私有仓库，请上传本次运行实际出现的 artifact zip；维护者无法直接访问私有仓库的 Actions 页面和运行产物。
+
+        运行链接查找方法：
+        打开你这次失败或异常的 workflow 运行页面，进入具体 job 页面后，直接复制浏览器地址栏链接并粘贴到下面，一般链接形如 `https://github.com/<your-account>/<your-repo>/actions/runs/24829120566/job/72672761254`。
 
   - type: input
     id: workflow_run_url
     attributes:
       label: GitHub Actions 运行链接
-      description: 请粘贴本次失败或异常运行的完整链接，推荐直接提供具体 job 链接
+      description: 公开 fork 请填写；私有 fork 如果无法提供可访问链接，请在后面的补充信息中说明并上传 artifact zip
       placeholder: https://github.com/<your-account>/<your-repo>/actions/runs/24829120566/job/72672761254
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repo_visibility
+    attributes:
+      label: Fork 可见性
+      options:
+        - 公开仓库
+        - 私有仓库
     validations:
       required: true
 
@@ -61,4 +74,4 @@ body:
     id: extra
     attributes:
       label: 其他补充信息
-      description: 可选。可以补充截图、怀疑原因、账号环境信息等；如果 issue 提交后想补充截图，也可以直接追加评论。
+      description: 可选。可以补充截图、怀疑原因、账号环境信息等；如果是私有 fork，请在这里明确说明你上传了哪些 artifact zip。

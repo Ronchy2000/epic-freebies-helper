@@ -73,7 +73,7 @@ Basic configuration and execution steps:
 > [!TIP]
 > If you have already forked this repository before, go to your fork on GitHub first and click `Sync fork` -> `Update branch` so your copy is aligned with the latest upstream changes before you continue.
 
-- Fork the repo to your own GitHub account. A private fork is recommended.
+- Fork the repo to your own GitHub account.
 - Open `Actions` and enable the workflow named `Epic Awesome Gamer (Scheduled)`.
 
 ### 2. Configure Secrets
@@ -160,6 +160,11 @@ What to inspect first:
 | `epic-screenshots-<run_id>.zip` | If present, check login, risk-control, or auth screenshots first |
 
 These files are generated and uploaded after each GitHub Actions run. They are not fixed directories pre-shipped in the repository root.
+
+If you need to open an issue, do not paste only a short log excerpt.
+
+- If your fork is public, the Actions run URL is usually enough because maintainers can inspect the run page directly.
+- If your fork is private, you must upload the artifact zip files that were actually generated for that run. Maintainers cannot access private Actions pages or private run artifacts.
 
 ---
 

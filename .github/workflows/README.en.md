@@ -123,6 +123,11 @@ If the logs are still retrying captcha challenges, do not click `Cancel workflow
 
 The workflow now attempts to upload an extra `epic-screenshots-<run_id>` artifact. This artifact only appears at the bottom of the run page when the login, risk-control, or auth flow actually saved screenshots. If the logs only show messages like `Timeout waiting for #email`, `Just a moment...`, or `One more step`, and the Artifacts section contains a screenshot package, inspect that artifact first.
 
+If you need to report a failed or suspicious run, keep this distinction in mind:
+
+- For a public fork, the Actions run URL is usually enough because maintainers can inspect the run page directly.
+- For a private fork, upload the artifact zip files that were actually generated for that run. Maintainers cannot access private Actions pages or private run artifacts.
+
 ### 2. Logs mention `privacy-policy correction`
 
 This is usually not a `GLM`, `Gemini`, or `AiHubMix` API issue. It means the Epic account was redirected after login to a page like `/id/login/correction/privacy-policy`.

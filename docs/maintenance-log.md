@@ -96,6 +96,53 @@
   - 将英文标题和相关表述从 `freebies` 调整为 `free games`，与当前项目命名保持一致。
   - 将英文 README 中社区致谢区的名字行改为注释状态，与中文 README 保持一致。
 
+### 调整私有 fork 反馈说明并增加 Actions 成功摘要
+
+- 现象：
+  - README 和部分文档仍建议用户将 fork 改为私有，但相关说明没有同步强调：私有 fork 的 Actions 页面和运行产物对维护者不可见。
+  - 现有 issue 模板默认要求“只提供运行链接”，这对私有 fork 不成立。
+  - workflow 成功后还没有统一的 summary 提示用户去成功反馈讨论区留言。
+- 根因判断：
+  - 仓库内关于“公开 fork / 私有 fork”两种反馈路径的规则还没有统一。
+  - 运行成功后的后续动作缺少明确入口，不利于沉淀成功样本。
+- 改动文件：
+  - `README.md`
+  - `README.en.md`
+  - `.github/workflows/README.md`
+  - `.github/workflows/README.en.md`
+  - `.github/ISSUE_TEMPLATE/01-bug-report-zh.yml`
+  - `.github/ISSUE_TEMPLATE/02-bug-report-en.yml`
+  - `.github/workflows/epic-gamer.yml`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 删除 README 和 workflow 文档中“建议改为私有仓库”的表述。
+  - 在中英文 README、workflow 文档和 issue 模板中补充规则：公开 fork 可附运行链接，私有 fork 必须上传本次运行实际出现的 artifact zip。
+  - 为中英文 issue 模板增加 fork 可见性字段。
+  - 在 workflow 成功后写入 `GITHUB_STEP_SUMMARY`，引导用户前往成功反馈讨论区，并补充私有 fork 的反馈说明。
+
+### 统一仓库身份相关的残留命名与链接
+
+- 现象：
+  - 仓库中仍残留 `10000ge10000/epic-awesome-gamer`、`QIN2DIM/epic-awesome-gamer` 相关的运行条件、镜像地址、项目元数据和旧工作目录表述。
+  - 这些内容已经不再对应当前维护仓库，容易让用户误以为默认运行目标、镜像来源和项目信息仍指向旧仓库。
+- 根因判断：
+  - 项目在历史迁移和持续维护过程中，README 已经逐步改成当前仓库，但 workflow、Docker、`pyproject` 和部分开发记录仍保留了旧仓库标识。
+- 改动文件：
+  - `.github/workflows/epic-gamer.yml`
+  - `docker/docker-compose.yaml`
+  - `app/extensions/ext_celery.py`
+  - `app/schedule/collect_epic_games_task.py`
+  - `pyproject.toml`
+  - `docs/development-log-2026-04-22.md`
+  - `docs/development-log-2026-04-22.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 将 workflow 的主仓库判断切换为 `Ronchy2000/epic-freebies-helper`。
+  - 将 Docker Compose 的项目名、服务名、容器名和默认镜像地址切换为当前仓库命名。
+  - 将 Celery app 名称与任务队列名改为 `epic-freebies-helper`。
+  - 将 `pyproject.toml` 中的作者和项目 URL 切换为当前维护仓库。
+  - 将开发记录中的旧工作目录表述同步为当前仓库路径。
+
 ### 重新补回 Codex 的 Karpathy 风格工作准则
 
 - 现象：

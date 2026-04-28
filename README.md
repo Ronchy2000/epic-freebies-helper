@@ -73,7 +73,7 @@
 > [!TIP]
 > 如果你已经 Fork 过这个仓库，建议先在 GitHub 网页上进入你自己的仓库，点击 `Sync fork` -> `Update branch`，先和最新项目保持一致，再继续后面的配置和运行。
 
-- Fork 到自己的 GitHub 账号，建议改为私有仓库。
+- Fork 到自己的 GitHub 账号。
 - 打开 `Actions`，启用工作流 `Epic Awesome Gamer (Scheduled)`。
 
 ### 2. 配置 Secrets
@@ -173,6 +173,11 @@ All week-free games are already in the library
 5. 把这些 zip 直接拖进 issue 编辑框，或者点击附件按钮上传。
 
 这些 zip 里通常已经包含定位问题所需的完整日志、截图和 `purchase_debug` 文本。GitHub issue 支持直接上传 `.zip` 文件。
+
+补充说明：
+
+- 如果你的 fork 是公开仓库，通常附上本次 Actions 运行链接即可，维护者一般可以直接查看对应页面。
+- 如果你的 fork 是私有仓库，请务必上传本次运行实际出现的 artifact zip；维护者无法直接访问私有仓库的 Actions 页面和运行产物。
 
 ---
 
