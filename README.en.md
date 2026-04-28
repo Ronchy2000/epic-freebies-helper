@@ -10,6 +10,22 @@
 
 [中文文档](README.md) | [English](README.en.md)
 
+## Branch Notice
+
+This is the DeepSeek V4 testing branch.
+
+This branch specifically supports using `LLM_PROVIDER=deepseek` to call DeepSeek V4 models for captcha handling.
+
+Recommended test configuration:
+
+| Setting | Recommended value |
+| --- | --- |
+| `LLM_PROVIDER` | `deepseek` |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` |
+
+To compare model quality, set `DEEPSEEK_MODEL` to `deepseek-v4-pro`.
+
 ## Project Description
 
 This project runs an Epic weekly free-games claiming flow on GitHub Actions.

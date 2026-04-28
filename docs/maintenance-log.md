@@ -392,3 +392,17 @@
   - 将本地单次调试和 Docker 部署迁移到 `docs/local-debug.md`。
   - 将 `.env.example` 改为分组模板，移除示例邮箱和示例密码。
   - 保留 README 的项目来源、免责声明、Star 趋势和社区致谢部分。
+
+### 在 README 开头标注 DeepSeek V4 测试分支
+
+- 现象：
+  - DeepSeek V4 支持位于独立开发分支，用户进入分支页面时不容易立即判断该分支应测试哪个 provider。
+- 根因判断：
+  - README 开头缺少分支用途说明，容易和 `master` 或其他 provider 分支混淆。
+- 改动文件：
+  - `README.md`
+  - `README.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 在中英文 README 开头新增分支说明。
+  - 明确当前分支用于测试 `LLM_PROVIDER=deepseek`，推荐模型为 `deepseek-v4-flash`，可切换到 `deepseek-v4-pro` 对比。

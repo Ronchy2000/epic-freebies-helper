@@ -10,6 +10,22 @@
 
 [中文文档](README.md) | [English](README.en.md)
 
+## 分支说明
+
+当前分支为 DeepSeek V4 测试分支。
+
+本分支特别支持通过 `LLM_PROVIDER=deepseek` 调用 DeepSeek V4 模型处理验证码。
+
+建议测试配置：
+
+| 配置项 | 建议值 |
+| --- | --- |
+| `LLM_PROVIDER` | `deepseek` |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` |
+
+如果需要对比模型质量，可以将 `DEEPSEEK_MODEL` 改为 `deepseek-v4-pro`。
+
 ## 项目说明
 
 本项目用于在 GitHub Actions 中定时运行 Epic 周免游戏领取流程。
