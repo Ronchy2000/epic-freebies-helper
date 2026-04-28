@@ -18,7 +18,7 @@ This is the OpenAI / GPT testing branch.
 
 This branch specifically supports using `LLM_PROVIDER=openai` to call image-capable GPT models for captcha handling.
 
-Recommended test configuration:
+Use the following test values:
 
 | Setting | Recommended value |
 | --- | --- |
@@ -27,6 +27,11 @@ Recommended test configuration:
 | `OPENAI_MODEL` | `gpt-4.1-mini` |
 
 If you use a third-party OpenAI-compatible gateway, confirm that it supports the Chat Completions `image_url` input format.
+
+This branch is not for DeepSeek V4 testing. Do not configure `DEEPSEEK_MODEL` on this branch.
+
+To test DeepSeek V4, switch to the `codex/add-deepseekv4-provider` branch and set
+`DEEPSEEK_MODEL` to `deepseek-v4-pro`.
 
 ## Project Description
 

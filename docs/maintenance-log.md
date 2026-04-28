@@ -402,3 +402,18 @@
 - 处理结果：
   - 在中英文 README 开头新增分支说明。
   - 明确当前分支用于测试 `LLM_PROVIDER=openai`，推荐模型为 `gpt-4.1-mini`，并提示第三方 OpenAI 兼容网关需要支持 `image_url` 输入格式。
+
+### 2026-04-29 补充 OpenAI 分支与 DeepSeek 配置边界
+
+- 现象：
+  - 两个 provider 开发分支同时存在，用户可能误以为可以在 OpenAI / GPT 分支中配置 `DEEPSEEK_MODEL`。
+- 根因判断：
+  - OpenAI 分支 README 只说明了 GPT 测试配置，没有明确排除 DeepSeek V4 测试配置。
+- 改动文件：
+  - `README.md`
+  - `README.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 中英文 README 明确说明 OpenAI / GPT 分支不用于测试 DeepSeek V4。
+  - 明确提示不要在本分支配置 `DEEPSEEK_MODEL`。
+  - 如需测试 DeepSeek V4，应切换到 `codex/add-deepseekv4-provider` 并设置 `DEEPSEEK_MODEL=deepseek-v4-pro`。

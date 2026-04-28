@@ -18,7 +18,7 @@
 
 本分支特别支持通过 `LLM_PROVIDER=openai` 调用支持图片输入的 GPT 模型处理验证码。
 
-建议测试配置：
+测试时使用以下配置值：
 
 | 配置项 | 建议值 |
 | --- | --- |
@@ -27,6 +27,11 @@
 | `OPENAI_MODEL` | `gpt-4.1-mini` |
 
 如果使用第三方 OpenAI 兼容网关，需要确认该网关支持 Chat Completions 的 `image_url` 输入格式。
+
+本分支不用于测试 DeepSeek V4。不要在本分支配置 `DEEPSEEK_MODEL`。
+
+如需测试 DeepSeek V4，请切换到 `codex/add-deepseekv4-provider` 分支，并将
+`DEEPSEEK_MODEL` 设置为 `deepseek-v4-pro`。
 
 ## 项目说明
 
