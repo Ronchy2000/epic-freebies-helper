@@ -40,13 +40,22 @@ Required in all cases:
 | `EPIC_EMAIL` | Epic account email, with 2FA disabled |
 | `EPIC_PASSWORD` | Epic account password, with 2FA disabled |
 
-If you use Gemini / AiHubMix:
+If you use the official Gemini API:
 
 | Secret | Description |
 | --- | --- |
 | `LLM_PROVIDER` | Recommended value: `gemini` |
-| `GEMINI_API_KEY` | Gemini or AiHubMix key |
-| `GEMINI_BASE_URL` | Optional, defaults to `https://aihubmix.com` |
+| `GEMINI_API_KEY` | Gemini API key |
+| `GEMINI_BASE_URL` | Leave empty to use the official default endpoint |
+| `GEMINI_MODEL` | Optional, defaults to `gemini-2.5-pro` |
+
+If you use a Gemini-compatible relay such as AiHubMix:
+
+| Secret | Description |
+| --- | --- |
+| `LLM_PROVIDER` | Recommended value: `gemini` |
+| `GEMINI_API_KEY` | AiHubMix key |
+| `GEMINI_BASE_URL` | For example `https://aihubmix.com` |
 | `GEMINI_MODEL` | Optional, defaults to `gemini-2.5-pro` |
 
 If you use GLM:
@@ -86,7 +95,7 @@ The lower-level dependency is `hcaptcha-challenger`, and internally it uses `goo
 
 This repository now includes an adapter layer:
 
-- Gemini / AiHubMix continues to use the existing compatibility patch.
+- The official Gemini API and AiHubMix-style Gemini-compatible relays continue to use the existing compatibility patch.
 - GLM is translated automatically into Zhipu's OpenAI-compatible `chat/completions` requests.
 
 That is why GLM here should use a vision-capable model such as `glm-4.6v`, not a plain text coding model.

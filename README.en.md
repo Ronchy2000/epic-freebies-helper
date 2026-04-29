@@ -103,21 +103,32 @@ Configuration page example:
 
 ![GitHub Actions Secrets example](docs/images/tutorial/step2-actions-secrets.png)
 
-If you use `Gemini / AiHubMix`, use this set:
+If you use the `official Gemini API`, use this set:
 
 | Secret | Example value |
 | --- | --- |
 | `LLM_PROVIDER` | gemini |
-| `GEMINI_API_KEY` | Your Gemini or AiHubMix key |
+| `GEMINI_API_KEY` | Your Gemini API key |
+| `GEMINI_BASE_URL` | leave empty |
+| `GEMINI_MODEL` | gemini-2.5-pro |
+
+If you use a Gemini-compatible relay such as `AiHubMix`, use this set:
+
+| Secret | Example value |
+| --- | --- |
+| `LLM_PROVIDER` | gemini |
+| `GEMINI_API_KEY` | Your AiHubMix key |
 | `GEMINI_BASE_URL` | https://aihubmix.com |
 | `GEMINI_MODEL` | gemini-2.5-pro |
 
 Notes:
 
-- The current codebase still supports the `Gemini / AiHubMix` route.
+- The current codebase supports both the `official Gemini API` and Gemini-compatible relays such as `AiHubMix`.
 - The variable name is `GEMINI_BASE_URL`, not `GEMINI_BASE_MODEL`.
+- When you use the `official Gemini API`, leave `GEMINI_BASE_URL` empty so the SDK uses Google's default endpoint.
+- Only set `GEMINI_BASE_URL` when you use `AiHubMix` or another Gemini-compatible relay.
 - For `GLM`, `glm-4.6v` is the recommended starting value; `glm-4.6v-flash` can fail during peak traffic.
-- For `Gemini / AiHubMix`, `GEMINI_MODEL=gemini-2.5-pro` is the recommended starting value.
+- For `Gemini` / `AiHubMix`, `GEMINI_MODEL=gemini-2.5-pro` is the recommended starting value.
 - If `CHALLENGE_CLASSIFIER_MODEL`, `IMAGE_CLASSIFIER_MODEL`, `SPATIAL_POINT_REASONER_MODEL`, and `SPATIAL_PATH_REASONER_MODEL` are left empty, they automatically follow the active provider default, meaning `GLM_MODEL` or `GEMINI_MODEL`.
 - If you do not want to split models by task yet, leave all four override fields empty.
 - The `GLM` path does not require an extra `GEMINI_API_KEY`.
@@ -295,7 +306,17 @@ environment:
   - GLM_MODEL=glm-4.6v
 ```
 
-Gemini / AiHubMix example:
+Official Gemini API example:
+
+```yaml
+environment:
+  - LLM_PROVIDER=gemini
+  - GEMINI_API_KEY=your_gemini_key
+  - GEMINI_BASE_URL=
+  - GEMINI_MODEL=gemini-2.5-pro
+```
+
+AiHubMix example:
 
 ```yaml
 environment:

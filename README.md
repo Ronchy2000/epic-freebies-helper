@@ -103,21 +103,32 @@
 
 ![GitHub Actions Secrets 配置示例](docs/images/tutorial/step2-actions-secrets.png)
 
-如果你使用 `Gemini / AiHubMix`，请按下面这组填写：
+如果你使用 `Gemini 官方接口`，请按下面这组填写：
 
 | Secret | 示例值 |
 | --- | --- |
 | `LLM_PROVIDER` | gemini |
-| `GEMINI_API_KEY` | 你的 Gemini 或 AiHubMix Key |
+| `GEMINI_API_KEY` | 你的 Gemini API Key |
+| `GEMINI_BASE_URL` | 留空 |
+| `GEMINI_MODEL` | gemini-2.5-pro |
+
+如果你使用 `AiHubMix` 这类 Gemini 兼容中转接口，请按下面这组填写：
+
+| Secret | 示例值 |
+| --- | --- |
+| `LLM_PROVIDER` | gemini |
+| `GEMINI_API_KEY` | 你的 AiHubMix Key |
 | `GEMINI_BASE_URL` | https://aihubmix.com |
 | `GEMINI_MODEL` | gemini-2.5-pro |
 
 说明：
 
-- 当前代码仍然支持 `Gemini / AiHubMix` 路线。
+- 当前代码同时支持 `Gemini 官方接口` 和 `AiHubMix` 这类 Gemini 兼容接口。
 - 变量名是 `GEMINI_BASE_URL`，不是 `GEMINI_BASE_MODEL`。
+- 使用 `Gemini 官方接口` 时，`GEMINI_BASE_URL` 应留空，让 SDK 直接走 Google 官方默认地址。
+- 使用 `AiHubMix` 或其他 Gemini 兼容中转接口时，再填写对应的 `GEMINI_BASE_URL`。
 - 对 `GLM` 路线，推荐把 `GLM_MODEL` 设为 `glm-4.6v`；`glm-4.6v-flash` 在高峰期可能报“该模型当前访问量过大，请您稍后重试”。
-- 对 `Gemini / AiHubMix` 路线，建议先用 `GEMINI_MODEL=gemini-2.5-pro` 作为起步配置。
+- 对 `Gemini` / `AiHubMix` 路线，建议先用 `GEMINI_MODEL=gemini-2.5-pro` 作为起步配置。
 - `CHALLENGE_CLASSIFIER_MODEL`、`IMAGE_CLASSIFIER_MODEL`、`SPATIAL_POINT_REASONER_MODEL`、`SPATIAL_PATH_REASONER_MODEL` 如果留空，会自动跟随当前 provider 的默认模型，也就是 `GLM_MODEL` 或 `GEMINI_MODEL`。
 - 如果你暂时不想细分模型，最简单的做法就是让上面 4 个覆盖项全部留空。
 - 走 `GLM` 路线时不需要额外再填 `GEMINI_API_KEY`。
@@ -308,7 +319,17 @@ environment:
   - GLM_MODEL=glm-4.6v
 ```
 
-Gemini / AiHubMix 示例：
+Gemini 官方接口示例：
+
+```yaml
+environment:
+  - LLM_PROVIDER=gemini
+  - GEMINI_API_KEY=your_gemini_key
+  - GEMINI_BASE_URL=
+  - GEMINI_MODEL=gemini-2.5-pro
+```
+
+AiHubMix 示例：
 
 ```yaml
 environment:

@@ -194,6 +194,28 @@
   - 在中英文 README 的 FAQ 中新增 2FA 专项说明，明确列出典型报错和 `/id/login/mfa` 跳转信号。
   - 补充处理步骤，并配图说明：进入 Epic 安全设置页面后，把启用的验证方式全部 `Remove` 掉。
 
+### 区分 Gemini 官方接口与 AiHubMix 的配置说明
+
+- 现象：
+  - 主 README、workflow 文档和 `.env.example` 之前把 `Gemini` 与 `AiHubMix` 混写成同一组示例，并直接给出 `GEMINI_BASE_URL=https://aihubmix.com`。
+  - 这会误导使用 Gemini 官方接口的用户，以为官方 Gemini 也应填写 AiHubMix 的地址。
+- 根因判断：
+  - 文档层没有区分“官方 Gemini 默认地址”和“第三方 Gemini 兼容中转接口”。
+  - 代码层此前还将 `GEMINI_BASE_URL` 默认值设为 `https://aihubmix.com`，默认行为也不利于直连官方 Gemini。
+- 改动文件：
+  - `app/settings.py`
+  - `app/extensions/llm_adapter.py`
+  - `README.md`
+  - `README.en.md`
+  - `.github/workflows/README.md`
+  - `.github/workflows/README.en.md`
+  - `.env.example`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 将 `GEMINI_BASE_URL` 默认值改为空字符串，留空时直接走 Gemini 官方默认地址。
+  - 仅在显式填写 `GEMINI_BASE_URL` 时，才启用 Gemini 兼容中转地址覆盖逻辑。
+  - 在中英文 README、workflow 文档和 `.env.example` 中拆分“官方 Gemini”与“AiHubMix”两套示例，避免继续混淆。
+
 ### 重新补回 Codex 的 Karpathy 风格工作准则
 
 - 现象：

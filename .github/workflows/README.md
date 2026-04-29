@@ -40,13 +40,22 @@
 | `EPIC_EMAIL` | Epic 邮箱，需关闭 2FA |
 | `EPIC_PASSWORD` | Epic 密码，需关闭 2FA |
 
-如果你使用 Gemini/AiHubMix：
+如果你使用 Gemini 官方接口：
 
 | Secret | 说明 |
 | --- | --- |
 | `LLM_PROVIDER` | 建议设为 `gemini` |
-| `GEMINI_API_KEY` | Gemini 或 AiHubMix Key |
-| `GEMINI_BASE_URL` | 可选，默认 `https://aihubmix.com` |
+| `GEMINI_API_KEY` | Gemini API Key |
+| `GEMINI_BASE_URL` | 留空，走官方默认地址 |
+| `GEMINI_MODEL` | 可选，默认 `gemini-2.5-pro` |
+
+如果你使用 AiHubMix 这类 Gemini 兼容中转接口：
+
+| Secret | 说明 |
+| --- | --- |
+| `LLM_PROVIDER` | 建议设为 `gemini` |
+| `GEMINI_API_KEY` | AiHubMix Key |
+| `GEMINI_BASE_URL` | 例如 `https://aihubmix.com` |
 | `GEMINI_MODEL` | 可选，默认 `gemini-2.5-pro` |
 
 如果你使用 GLM：
@@ -86,7 +95,7 @@
 
 这次仓库已经新增适配层：
 
-- Gemini/AiHubMix 继续使用原有兼容补丁。
+- Gemini 官方接口和 AiHubMix 兼容接口继续使用原有兼容补丁。
 - GLM 会自动转成智谱 OpenAI-compatible `chat/completions` 请求。
 
 这也是为什么 GLM 这里推荐 `glm-4.6v` 这类视觉模型，而不是纯文本的编码模型。
