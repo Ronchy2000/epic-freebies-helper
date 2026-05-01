@@ -94,6 +94,8 @@ If `glm-4.6v-flash` starts returning overload messages such as "the current mode
 
 ## Recommended First Run
 
+After forking, open the `Actions` page in your fork, enter `Epic Awesome Gamer (Scheduled)`, and click `Enable workflow` once, or GitHub will not activate the scheduled run for that fork.
+
 1. Fork the repository.
 2. Make the fork private.
 3. Configure Secrets.

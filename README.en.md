@@ -77,6 +77,8 @@ Confirm these requirements before configuration:
 > [!TIP]
 > If you already forked this repository, open your fork on GitHub and click `Sync fork` -> `Update branch` before continuing.
 
+After forking, open the `Actions` page in your fork, enter `Epic Awesome Gamer (Scheduled)`, and click `Enable workflow` once, or GitHub will not activate the scheduled run for that fork.
+
 1. Fork this repository to your GitHub account.
 2. Open the `Actions` page in your fork.
 3. Enable the workflow named `Epic Awesome Gamer (Scheduled)`.
