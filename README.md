@@ -73,6 +73,8 @@
 > [!TIP]
 > 如果你已经 Fork 过这个仓库，建议先在 GitHub 网页上进入你自己的仓库，点击 `Sync fork` -> `Update branch`，先和最新项目保持一致，再继续后面的配置和运行。
 
+Fork 之后先打开自己仓库的 `Actions` 页面，进入 `Epic Awesome Gamer (Scheduled)` 并点一次 `Enable workflow`，否则 GitHub 不会让这个 Fork 的定时 `schedule` 自动生效。
+
 - Fork 到自己的 GitHub 账号。
 - 打开 `Actions`，启用工作流 `Epic Awesome Gamer (Scheduled)`。
 

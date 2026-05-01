@@ -103,6 +103,8 @@
 
 ## 建议的首次启动流程
 
+Fork 之后先打开自己仓库的 `Actions` 页面，进入 `Epic Awesome Gamer (Scheduled)` 并点一次 `Enable workflow`，否则 GitHub 不会让这个 Fork 的定时 `schedule` 自动生效。
+
 1. Fork 仓库。
 2. 配置 Secrets。
 3. 到 `Actions` 页面手动运行一次。

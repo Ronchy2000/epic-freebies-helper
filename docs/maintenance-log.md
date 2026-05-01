@@ -363,3 +363,95 @@
 - 处理结果：
   - 在中英文进阶文档中新增“当前项目实际上考虑了哪些验证码类型”和“为什么有些验证码还是过不去”两段分析。
   - 明确列出当前已接入的 challenge type、被忽略的特殊题目，以及失败常见来源。
+
+### 2026-04-29 OpenAI / GPT provider 接入
+
+- 现象：
+  - 用户询问项目是否能接 GPT 模型完成同样的验证码识别任务。
+  - 原有配置只覆盖 `gemini` / `glm`，没有 OpenAI / GPT 的独立配置入口。
+- 根因判断：
+  - `hcaptcha-challenger` 上层仍按 `google-genai` 风格上传图片并调用 `generate_content`。
+  - GPT 不能简单复用 `GLM_MODEL` 或 `GEMINI_BASE_URL`；OpenAI Chat Completions 的图片输入需要 `image_url`，本地图片应转成 `data:<mime>;base64,...`。
+- 改动文件：
+  - `app/settings.py`
+  - `app/extensions/llm_adapter.py`
+  - `.github/workflows/epic-gamer.yml`
+  - `.env.example`
+  - `docker/docker-compose.yaml`
+  - `README.md`
+  - `README.en.md`
+  - `docs/advanced.md`
+  - `docs/advanced.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 新增 `LLM_PROVIDER=openai`，以及 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`。
+  - 默认 OpenAI 模型设为 `gpt-4.1-mini`，并让 4 个验证码子模型在留空时跟随 `OPENAI_MODEL`。
+  - 在适配层新增 OpenAI 兼容客户端，把 hCaptcha 图片输入转换为 OpenAI 可接受的 data URL 图片输入。
+  - 中英文 README、Docker 示例、Actions secret 透传和进阶文档均补充 OpenAI / GPT 路线说明。
+
+### 2026-04-29 README 结构与用户文档拆分
+
+- 现象：
+  - README 同时承担快速开始、完整 provider 说明、FAQ、Artifact 说明、本地调试和 Docker 部署说明。
+  - 普通用户首次配置需要阅读过多与首跑无关的内容。
+- 根因判断：
+  - README 职责过多，详细排障和 provider 细节没有独立文档承载。
+  - `.env.example` 缺少按 provider 分组的说明，不利于对照 README 配置。
+- 改动文件：
+  - `README.md`
+  - `README.en.md`
+  - `.env.example`
+  - `docs/providers.md`
+  - `docs/troubleshooting.md`
+  - `docs/local-debug.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - README 缩减为 GitHub Actions 首次配置和运行所需内容。
+  - 新增 provider、排障、本地调试与 Docker 三份文档。
+  - `.env.example` 改为按账号、provider、高级覆盖项和运行参数分组。
+  - 保留中文 README 中 `## 社区致谢` 及其后原文。
+
+### 2026-04-29 在 README 开头标注 OpenAI / GPT 测试分支
+
+- 现象：
+  - OpenAI / GPT 支持位于独立开发分支，用户进入分支页面时不容易立即判断该分支应测试哪个 provider。
+- 根因判断：
+  - README 开头缺少分支用途说明，容易和 `master` 或其他 provider 分支混淆。
+- 改动文件：
+  - `README.md`
+  - `README.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 在中英文 README 开头新增分支说明。
+  - 明确当前分支用于测试 `LLM_PROVIDER=openai`，推荐模型为 `gpt-4.1-mini`，并提示第三方 OpenAI 兼容网关需要支持 `image_url` 输入格式。
+
+### 2026-04-29 补充 OpenAI 分支与 DeepSeek 配置边界
+
+- 现象：
+  - 两个 provider 开发分支同时存在，用户可能误以为可以在 OpenAI / GPT 分支中配置 `DEEPSEEK_MODEL`。
+- 根因判断：
+  - OpenAI 分支 README 只说明了 GPT 测试配置，没有明确排除 DeepSeek V4 测试配置。
+- 改动文件：
+  - `README.md`
+  - `README.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 中英文 README 明确说明 OpenAI / GPT 分支不用于测试 DeepSeek V4。
+  - 明确提示不要在本分支配置 `DEEPSEEK_MODEL`。
+  - 如需测试 DeepSeek V4，应切换到 `codex/add-deepseekv4-provider` 并设置 `DEEPSEEK_MODEL=deepseek-v4-pro`。
+
+### 2026-05-02 补充 Fork 后手动启用工作流说明
+
+- 现象：
+  - 用户不确定当前仓库是否还会自动执行领取工作流，也不确定 Fork 后是否需要额外在 GitHub 页面手动启用 Actions。
+- 根因判断：
+  - workflow 文件已经通过仓库条件跳过主仓库自身的定时领取任务，但中英文 README 和 workflow 文档没有直接写明 Fork 后必须先点一次 `Enable workflow`，否则 GitHub 不会为该 Fork 启用定时 `schedule`。
+- 改动文件：
+  - `README.md`
+  - `README.en.md`
+  - `.github/workflows/README.md`
+  - `.github/workflows/README.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 在中英文 README 和 workflow 文档中补充一句直白说明。
+  - 明确写出操作入口：进入 Fork 仓库的 `Actions` 页面，打开 `Epic Awesome Gamer (Scheduled)`，点击一次 `Enable workflow`。
