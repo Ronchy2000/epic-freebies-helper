@@ -67,7 +67,7 @@ async def authorize(page: Page):
     await agent.invoke()
 
 
-@ext_celery_app.task(queue="epic-awesome-gamer")
+@ext_celery_app.task(queue="epic-freebies-helper")
 async def collect_epic_games_task():
     headless = "virtual" if "linux" in sys.platform else False
 

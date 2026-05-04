@@ -202,6 +202,11 @@ def _extract_drag_points_from_text(text: str) -> tuple[dict[str, int], dict[str,
         (sx, sy), (tx, ty) = point_pairs
         return ({"x": int(sx), "y": int(sy)}, {"x": int(tx), "y": int(ty)})
 
+    csv_drag = re.fullmatch(r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*", stripped)
+    if csv_drag:
+        sx, sy, tx, ty = map(int, csv_drag.groups())
+        return ({"x": sx, "y": sy}, {"x": tx, "y": ty})
+
     return None
 
 
@@ -906,13 +911,20 @@ def apply_gemini_patch(settings: Any):
             kwargs["api_key"] = settings.GEMINI_API_KEY.get_secret_value()
 
             base_url = settings.GEMINI_BASE_URL.rstrip("/")
-            if base_url.endswith("/v1"):
-                base_url = base_url[:-3]
-            if not base_url.endswith("/gemini"):
-                base_url = f"{base_url}/gemini"
+            if base_url:
+                if base_url.endswith("/v1"):
+                    base_url = base_url[:-3]
+                if not base_url.endswith("/gemini"):
+                    base_url = f"{base_url}/gemini"
 
-            kwargs["http_options"] = types.HttpOptions(base_url=base_url)
-            logger.info(f"🚀 Gemini 兼容补丁已应用 | 模型: {settings.GEMINI_MODEL} | 地址: {base_url}")
+                kwargs["http_options"] = types.HttpOptions(base_url=base_url)
+                logger.info(
+                    f"🚀 Gemini 兼容补丁已应用 | 模型: {settings.GEMINI_MODEL} | 地址: {base_url}"
+                )
+            else:
+                logger.info(
+                    f"🚀 Gemini 官方接口已应用默认配置 | 模型: {settings.GEMINI_MODEL}"
+                )
             orig_init(self, *args, **kwargs)
 
         genai.Client.__init__ = new_init

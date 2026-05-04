@@ -1,10 +1,10 @@
-name: epic-awesome-gamer
+name: epic-freebies-helper
 
 services:
-  epic-awesome-gamer:
-    image: ghcr.io/10000ge10000/epic-awesome-gamer:latest
+  epic-freebies-helper:
+    image: ghcr.io/ronchy2000/epic-freebies-helper:latest
     restart: always
-    container_name: epic-awesome-gamer
+    container_name: epic-freebies-helper
     
     environment:
       - TZ=Asia/Shanghai

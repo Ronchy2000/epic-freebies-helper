@@ -13,7 +13,7 @@
 
 说明：
 
-- 这条原始会话对应的旧工作目录是 `/Users/ronchy2000/Documents/Developer/Workshop/epic-awesome-gamer`
+- 这条原始会话对应的旧工作目录是 `/Users/ronchy2000/Documents/Developer/Workshop/epic-freebies-helper`
 - 当前仓库目录已经改名为 `epic-freebies-helper`
 - 下面的内容是提炼后的开发纪要，不是逐行聊天转录
 

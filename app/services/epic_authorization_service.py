@@ -23,6 +23,10 @@ from settings import SCREENSHOTS_DIR, settings
 URL_CLAIM = "https://store.epicgames.com/en-US/free-games"
 
 
+class EpicAuthenticationFatalError(RuntimeError):
+    pass
+
+
 class EpicAuthorization:
 
     def __init__(self, page: Page):
@@ -55,6 +59,10 @@ class EpicAuthorization:
         while not queue.empty():
             with suppress(Exception):
                 queue.get_nowait()
+
+    @staticmethod
+    def _is_two_factor_required_error(error_code: str) -> bool:
+        return error_code == "errors.com.epicgames.common.two_factor_authentication.required"
 
     async def _handle_right_account_validation(self):
         """
@@ -190,6 +198,9 @@ class EpicAuthorization:
                     await self._wait_for_login_form(point_url)
                     raise RuntimeError(error_code)
 
+                if self._is_two_factor_required_error(error_code):
+                    raise EpicAuthenticationFatalError(error_code)
+
                 raise RuntimeError(error_code)
 
             if not self._is_login_success_signal.empty():
@@ -283,6 +294,12 @@ class EpicAuthorization:
             sr = SCREENSHOTS_DIR.joinpath("authorization")
             sr.mkdir(parents=True, exist_ok=True)
             await self.page.screenshot(path=sr.joinpath(f"login-{int(time.time())}.png"))
+            if isinstance(err, EpicAuthenticationFatalError):
+                logger.error(
+                    "Epic account requires two-factor authentication, which is not supported by this project. "
+                    "Disable Epic 2FA (email / SMS / authenticator) and rerun the workflow."
+                )
+                raise
             return None
 
     async def invoke(self) -> bool:
@@ -302,8 +319,12 @@ class EpicAuthorization:
                 logger.success("Epic Games is already logged in")
                 return True
 
-            if await self._login():
-                return True
+            try:
+                if await self._login():
+                    return True
+            except EpicAuthenticationFatalError:
+                logger.error("Authentication aborted because Epic 2FA is still enabled")
+                return False
 
             if attempt < 3:
                 logger.warning(

@@ -78,3 +78,34 @@ Test execution is not allowed.
 - Any change that affects runtime behavior, bug handling, troubleshooting flow, user-facing guidance, or expected outcomes must be appended to `docs/maintenance-log.md` before finishing the task.
 - Each maintenance-log entry should include at least: date, symptom, root-cause judgment, changed files, and result.
 - Append only. Do not rewrite or remove older records unless the user explicitly asks for cleanup.
+
+## Karpathy-Inspired Codex Working Rules
+
+These guidelines supplement the project instructions above and should be applied by Codex for non-trivial work in this repository.
+
+### Think Before Coding
+
+- State assumptions explicitly when the codebase or request is ambiguous.
+- If multiple interpretations are plausible, surface them instead of silently picking one.
+- Prefer asking for clarification over guessing when a wrong guess could cause rework or risky edits.
+- If a simpler approach exists, say so before implementing a more complex one.
+
+### Simplicity First
+
+- Implement the minimum change that solves the requested problem.
+- Do not add speculative abstractions, configuration, or extensibility that was not requested.
+- Match the repository's existing patterns unless the task explicitly requires a different design.
+- If a smaller solution is clearly sufficient, prefer it.
+
+### Surgical Changes
+
+- Touch only files and lines that are directly relevant to the request.
+- Do not refactor adjacent code, rewrite comments, or clean unrelated dead code unless asked.
+- Remove only the unused code or imports made obsolete by your own change.
+- Every changed line should be traceable to the requested outcome.
+
+### Goal-Driven Execution
+
+- For multi-step work, define a brief success path before editing.
+- Verify the result with the strongest safe check available in this repository.
+- Because test execution is not allowed here, use static inspection, linting, or targeted non-test verification when possible, and clearly report any verification limits.

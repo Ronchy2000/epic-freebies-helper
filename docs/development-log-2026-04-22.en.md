@@ -13,7 +13,7 @@ The raw record is still kept in the repository:
 
 Notes:
 
-- The original session used the old working directory `/Users/ronchy2000/Documents/Developer/Workshop/epic-awesome-gamer`
+- The original session used the old working directory `/Users/ronchy2000/Documents/Developer/Workshop/epic-freebies-helper`
 - The current repository directory has been renamed to `epic-freebies-helper`
 - The content below is a distilled development summary, not a line-by-line chat transcript
 

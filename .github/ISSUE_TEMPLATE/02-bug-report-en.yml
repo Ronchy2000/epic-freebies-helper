@@ -7,17 +7,30 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before submitting, please provide the GitHub Actions run link only. You do not need to download and upload artifacts manually.
+        Before submitting, first distinguish the visibility of your fork:
 
-        How to find the link:
-        Open the failed or suspicious workflow run, enter the specific job page, then copy the URL from your browser address bar and paste it below. A typical link looks like `https://github.com/<your-account>/<your-repo>/actions/runs/24829120566/job/72672761254`. Maintainers can use that link to inspect the full logs and runtime artifacts in Actions.
+        - If your fork is public, provide the GitHub Actions run URL.
+        - If your fork is private, upload the artifact zip files that were actually generated for that run. Maintainers cannot access private Actions pages or private run artifacts.
+
+        How to find the run URL:
+        Open the failed or suspicious workflow run, enter the specific job page, then copy the URL from your browser address bar and paste it below. A typical link looks like `https://github.com/<your-account>/<your-repo>/actions/runs/24829120566/job/72672761254`.
 
   - type: input
     id: workflow_run_url
     attributes:
       label: GitHub Actions run URL
-      description: Paste the full URL of the failed or suspicious workflow run. A job URL is preferred.
+      description: For public forks, paste the full URL. For private forks, explain in the extra context that you uploaded the artifact zip files.
       placeholder: https://github.com/<your-account>/<your-repo>/actions/runs/24829120566/job/72672761254
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repo_visibility
+    attributes:
+      label: Fork visibility
+      options:
+        - Public fork
+        - Private fork
     validations:
       required: true
 
@@ -61,4 +74,4 @@ body:
     id: extra
     attributes:
       label: Extra context
-      description: Optional. Add screenshots, suspected cause, environment details, or anything else useful. You can also add screenshots in a follow-up comment after creating the issue.
+      description: Optional. Add screenshots, suspected cause, environment details, or anything else useful. If this is a private fork, explicitly state which artifact zip files you uploaded.

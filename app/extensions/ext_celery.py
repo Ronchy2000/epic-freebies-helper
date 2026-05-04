@@ -14,7 +14,7 @@ from settings import settings
 
 def init_app():
     # Create Celery app instance
-    celery_app = Celery("epic-awesome-gamer", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
+    celery_app = Celery("epic-freebies-helper", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
 
     # Configure Celery
     celery_app.conf.update(

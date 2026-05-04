@@ -87,6 +87,48 @@ uv run ruff check --fix
 
 ---
 
+### 3.1 当前项目实际上考虑了哪些验证码类型
+
+目前项目在适配层里明确考虑过这些 challenge type：
+
+| 类型 | 当前状态 | 常见出现阶段 |
+| --- | --- | --- |
+| `image_drag_single` | 已支持，但仍可能偶发失败 | 登录 |
+| `image_drag_multiple` / `image_drag_multi` | 已支持，但稳定性一般 | 登录 / checkout |
+| `image_label_binary` | 已支持 | 登录 |
+| `image_label_multi_select` | 已支持，但最容易受模型返回结构波动影响 | checkout |
+| `image_label_area_select` | 已支持，但对返回框选坐标格式较敏感 | checkout |
+| `image_label_multiple_choice` | 已接入题型识别，但真实样本相对少 | 登录 / checkout |
+
+另外，项目里还有一类明确绕开的题目：
+
+| 特殊题目 | 当前策略 |
+| --- | --- |
+| `Please drag the crossing to complete the lines` | 明确加入忽略列表，不作为当前稳定支持对象 |
+
+也就是说，项目当前不是“所有验证码都能稳定通过”，而是“常见题型尽量兼容，特殊题型或结构漂移严重的返回继续按 artifact 修”。
+
+### 3.2 为什么有些验证码还是过不去
+
+从已经修过的 case 看，失败通常不是一个单点原因，而是下面几类问题叠加：
+
+| 失败来源 | 具体表现 |
+| --- | --- |
+| 题型识别不稳 | router 只回一个题型名，或者题型名有别名 |
+| 模型返回结构漂移 | 只返回 `answer`、只返回裸字符串、字段缺失、坐标格式变化 |
+| checkout 验证比登录更复杂 | 登录能过，不代表结账二次验证也能过 |
+| 页面状态切换太快 | challenge frame 消失、按钮短暂变化、Playwright 观察窗口错过状态 |
+| Epic / hCaptcha 风控变化 | 同一账号、同一题型，不同时段结果也可能不同 |
+
+所以当前项目的真实目标不是“绝对 100% 通过所有验证码”，而是：
+
+1. 尽量覆盖常见题型。
+2. 返回结构变了时优先在 [`llm_adapter.py`](../app/extensions/llm_adapter.py) 里修兼容。
+3. 页面流程变了时优先在 [`epic_games_service.py`](../app/services/epic_games_service.py) 里补状态识别。
+4. 每次失败都留下足够 artifact，支撑下一轮修复。
+
+---
+
 ### 4. Epic checkout 不只会弹 hCaptcha
 
 这次已经确认过，结账过程中可能出现下面这些状态：

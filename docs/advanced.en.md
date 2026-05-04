@@ -87,6 +87,48 @@ That is why [`llm_adapter.py`](../app/extensions/llm_adapter.py) now contains a 
 
 ---
 
+### 3.1 Which captcha types are actually considered right now
+
+At the adapter layer, the project currently has explicit handling for these challenge types:
+
+| Type | Current status | Common phase |
+| --- | --- | --- |
+| `image_drag_single` | Supported, but still occasionally unstable | Login |
+| `image_drag_multiple` / `image_drag_multi` | Supported, but only moderately stable | Login / checkout |
+| `image_label_binary` | Supported | Login |
+| `image_label_multi_select` | Supported, but most sensitive to model-output shape drift | Checkout |
+| `image_label_area_select` | Supported, but sensitive to box-coordinate response formats | Checkout |
+| `image_label_multiple_choice` | Wired in, but real-world samples are still limited | Login / checkout |
+
+There is also one challenge prompt that is explicitly treated as out of scope for reliable support:
+
+| Special prompt | Current strategy |
+| --- | --- |
+| `Please drag the crossing to complete the lines` | Explicitly ignored, not treated as a stable supported case |
+
+So the real state of the project is not "all captcha types are solved reliably." The actual state is "common types are handled as far as practical, while special prompts and heavily drifting response shapes are still repaired case by case from artifacts."
+
+### 3.2 Why some captcha challenges still fail
+
+Based on the cases already fixed, failures usually come from a combination of these factors rather than one single bug:
+
+| Failure source | Typical manifestation |
+| --- | --- |
+| Unstable challenge routing | The router returns only a type name, or uses an alias instead of the canonical type |
+| Model-output shape drift | Only `answer` is returned, only a raw string is returned, required fields are missing, or coordinate formats change |
+| Checkout verification is harder than login | Passing login does not mean the second verification during checkout will also pass |
+| Page state changes too quickly | The challenge frame disappears, buttons change briefly, or Playwright misses the short observation window |
+| Epic / hCaptcha risk-control changes | The same account and same challenge type can behave differently at different times |
+
+That is why the real engineering goal here is not a literal 100% captcha pass rate. The more realistic goal is:
+
+1. Cover the common challenge types as well as possible.
+2. Fix response-shape drift in [`llm_adapter.py`](../app/extensions/llm_adapter.py) first.
+3. Fix page-state recognition in [`epic_games_service.py`](../app/services/epic_games_service.py) when the page flow changes.
+4. Leave enough artifacts on every failure to support the next repair.
+
+---
+
 ### 4. Epic checkout can show more than hCaptcha
 
 The following states were all confirmed during checkout:

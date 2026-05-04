@@ -413,6 +413,7 @@ class EpicGames:
         ]
         page_claim_markers = [
             "ORDER CONFIRMED",
+            "IN LIBRARY",
             "IN YOUR LIBRARY",
             "VIEW IN LIBRARY",
             "GO TO LIBRARY",

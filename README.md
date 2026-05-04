@@ -1,6 +1,6 @@
 <div align="center">
-  <h1>Epic 周免领取助手</h1>
-  <p>An Epic Games weekly-freebies claimer for GitHub Actions.</p>
+  <h1>Epic 周免游戏领取助手</h1>
+  <p>A fully free Epic weekly free-games claimer powered by GitHub Actions.</p>
 
   <p>
     <a href="https://github.com/Ronchy2000/epic-freebies-helper/actions/workflows/epic-gamer.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ronchy2000/epic-freebies-helper/epic-gamer.yml?branch=master&style=flat-square" alt="Workflow Status" /></a>
@@ -13,14 +13,14 @@
 
 [🇨🇳 中文文档](README.md) | [🇺🇸 English](README.en.md)
 
-面向普通用户的 Epic 周免自动领取项目，默认通过 GitHub Actions 运行，不需要服务器或本地常驻环境；只要有 GitHub 账号，就可以直接开始。
+**Epic 周免游戏领取助手** 面向普通用户，默认运行在 GitHub Actions 上。你不需要服务器，不需要本地常驻环境，也不用额外部署；只要有 GitHub 账号，按文档完成配置后就可以开始使用。
 
-完全免费。  
-用 GitHub Actions 就能自动领取 Epic 周免，不需要服务器，不需要本地挂机。
+这个项目最核心的特点很直接：**完全免费**。
 
-本项目基于社区开源方案持续完善，并接入了国产 `GLM` 多模态模型。实测可稳定处理登录、验证码和领取流程；对于不方便注册 Google AI Studio、难以使用 Gemini API 的用户，GLM 路线更省心，`0` 成本即可跑通。
+本项目基于社区开源方案持续完善，并接入了国产 `GLM` 多模态模型。项目核心目标是保障自动登录、验证码识别及结账流程的稳定性。相比配合 Gemini，配置 GLM 模型流程更简便，且免费额度足以满足日常自动运行需求。
 
 **如果你选择 `GLM` 路线，请先确认对应智谱账号已经完成实名认证，否则通常无法正常使用 API。**
+> 2026.4.28: 部分朋友反馈，不实名认证也能调用API，所以如出现无法使用的情况，请检查该项。
 
 还没有智谱账号的话，可以通过这个邀请链接注册：[BigModel.cn 邀请注册链接](https://www.bigmodel.cn/invite?icode=A75tQCByIvrO4k6SLkU5BQZ3c5owLmCCcMQXWcJRS8E%3D)。
 
@@ -40,13 +40,13 @@
 | 自动发现周免 | 拉取并识别当周可领取游戏 |
 | 自动领取 | 自动进入商品页并完成结账流程 |
 | 验证码处理 | 支持登录验证码和 checkout 二次安全校验 |
-| 定时执行 | 可直接使用 GitHub Actions 定时运行 |
+| 定时执行 | 默认每周四晚通过 GitHub Actions 运行一次，可自行调整 |
 
 ---
 
 ## 为什么推荐 GLM
 
-如果你是第一次接触这类项目，直接从 GLM 开始会更容易跑通。核心原因很简单：
+推荐优先使用 GLM 路线，主要优势如下：
 
 - 配置更少：主要只要设置 `GLM_API_KEY` 和 `GLM_MODEL`。
 - 成本更低：`glm-4.6v` 的免费额度通常足够覆盖周免领取场景。
@@ -56,7 +56,7 @@
 
 ---
 
-## 使用前先确认
+## 环境与前提要求
 
 - Epic 账号邮箱与密码（用于登录）。
 - 关闭 Epic 账号 2FA（邮箱/短信/验证器）。
@@ -66,28 +66,38 @@
 
 ## 🚀 快速开始
 
-只做下面 4 步，通常 10 分钟内就能完成首次验证。
+基础配置与运行流程如下：
 
 ### 1. Fork 并启用 Actions
 
 > [!TIP]
 > 如果你已经 Fork 过这个仓库，建议先在 GitHub 网页上进入你自己的仓库，点击 `Sync fork` -> `Update branch`，先和最新项目保持一致，再继续后面的配置和运行。
 
-- Fork 到自己的 GitHub 账号，建议改为私有仓库。
+Fork 之后先打开自己仓库的 `Actions` 页面，进入 `Epic Awesome Gamer (Scheduled)` 并点一次 `Enable workflow`，否则 GitHub 不会让这个 Fork 的定时 `schedule` 自动生效。
+
+- Fork 到自己的 GitHub 账号。
 - 打开 `Actions`，启用工作流 `Epic Awesome Gamer (Scheduled)`。
 
 ### 2. 配置 Secrets
 
-进入 `Settings` -> `Secrets and variables` -> `Actions`，先填这 5 个：
+进入 `Settings` -> `Secrets and variables` -> `Actions`。
+
+必须配置：
+
+| Secret | 示例值 |
+| --- | --- |
+| `EPIC_EMAIL` | your_epic_email@example.com |
+| `EPIC_PASSWORD` | your_epic_password |
+
+如果你使用 `GLM`，建议先按下面这组填写：
 
 **如果你使用 `GLM_API_KEY`，请先确认对应智谱账号已经完成实名认证，否则 API 很可能不可用。**
 
 | Secret | 示例值 |
 | --- | --- |
-| `EPIC_EMAIL` | 你的 Epic 邮箱 |
-| `EPIC_PASSWORD` | 你的 Epic 密码 |
 | `LLM_PROVIDER` | glm |
 | `GLM_API_KEY` | 你的智谱 API Key |
+| `GLM_BASE_URL` | https://open.bigmodel.cn/api/paas/v4 |
 | `GLM_MODEL` | glm-4.6v |
 
 配置页面示例：
@@ -95,13 +105,44 @@
 
 ![GitHub Actions Secrets 配置示例](docs/images/tutorial/step2-actions-secrets.png)
 
-可选项：
+如果你使用 `Gemini 官方接口`，请按下面这组填写：
 
-- `GLM_BASE_URL` 留空即可使用默认值。
-- 推荐把 `GLM_MODEL` 设为 `glm-4.6v`；`glm-4.6v-flash` 在高峰期可能报“该模型当前访问量过大，请您稍后重试”。
-- `CHALLENGE_CLASSIFIER_MODEL`、`IMAGE_CLASSIFIER_MODEL`、`SPATIAL_POINT_REASONER_MODEL`、`SPATIAL_PATH_REASONER_MODEL` 留空即可跟随 `GLM_MODEL`。
-- 如果要改 Gemini 路线，把 `LLM_PROVIDER` 设为 `gemini` 并配置 `GEMINI_API_KEY`。
+| Secret | 示例值 |
+| --- | --- |
+| `LLM_PROVIDER` | gemini |
+| `GEMINI_API_KEY` | 你的 Gemini API Key |
+| `GEMINI_BASE_URL` | 留空 |
+| `GEMINI_MODEL` | gemini-2.5-pro |
+
+如果你使用 `AiHubMix` 这类 Gemini 兼容中转接口，请按下面这组填写：
+
+| Secret | 示例值 |
+| --- | --- |
+| `LLM_PROVIDER` | gemini |
+| `GEMINI_API_KEY` | 你的 AiHubMix Key |
+| `GEMINI_BASE_URL` | https://aihubmix.com |
+| `GEMINI_MODEL` | gemini-2.5-pro |
+
+说明：
+
+- 当前代码同时支持 `Gemini 官方接口` 和 `AiHubMix` 这类 Gemini 兼容接口。
+- 变量名是 `GEMINI_BASE_URL`，不是 `GEMINI_BASE_MODEL`。
+- 使用 `Gemini 官方接口` 时，`GEMINI_BASE_URL` 应留空，让 SDK 直接走 Google 官方默认地址。
+- 使用 `AiHubMix` 或其他 Gemini 兼容中转接口时，再填写对应的 `GEMINI_BASE_URL`。
+- 对 `GLM` 路线，推荐把 `GLM_MODEL` 设为 `glm-4.6v`；`glm-4.6v-flash` 在高峰期可能报“该模型当前访问量过大，请您稍后重试”。
+- 对 `Gemini` / `AiHubMix` 路线，建议先用 `GEMINI_MODEL=gemini-2.5-pro` 作为起步配置。
+- `CHALLENGE_CLASSIFIER_MODEL`、`IMAGE_CLASSIFIER_MODEL`、`SPATIAL_POINT_REASONER_MODEL`、`SPATIAL_PATH_REASONER_MODEL` 如果留空，会自动跟随当前 provider 的默认模型，也就是 `GLM_MODEL` 或 `GEMINI_MODEL`。
+- 如果你暂时不想细分模型，最简单的做法就是让上面 4 个覆盖项全部留空。
 - 走 `GLM` 路线时不需要额外再填 `GEMINI_API_KEY`。
+
+如果你确实要单独覆盖这 4 个模型，可以直接照下面填写：
+
+| Secret | GLM 示例值 | Gemini / AiHubMix 示例值 |
+| --- | --- | --- |
+| `CHALLENGE_CLASSIFIER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
+| `IMAGE_CLASSIFIER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
+| `SPATIAL_POINT_REASONER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
+| `SPATIAL_PATH_REASONER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
 
 ### 3. 手动运行一次
 
@@ -110,7 +151,7 @@
 - 点击 `Run workflow`。
 
 > [!IMPORTANT]
-> 不要看到运行了 5 分钟左右还在重试就手动取消。登录验证码和 checkout 二次校验本来就可能反复失败、重试、超时后再继续，有些最终成功的案例会持续 15 到 20 分钟；只要工作流还在继续跑，请先耐心等待。
+> **注意**：受 Epic 风控机制影响，脚本在验证码及结账环节可能触发多次重试，单次运行耗时可能长达 15 至 20 分钟。在运行结束前，建议勿手动中断工作流。
 
 ### 4. 看日志确认是否跑通
 
@@ -128,7 +169,7 @@ All week-free games are already in the library
 
 ![中间报错但最终成功的日志示例 1](docs/images/tutorial/step4-log-success-with-warnings-1.png)
 
-如果你在日志里看到多次重试后手动取消，像下面这样，也不一定代表脚本已经失败；很多时候只是还没跑完：
+如果你在日志里看到多次重试后手动取消，像下面这样；请你下一次运行时多给它一些耐心，有些脚本通常运行15min至20min才成功：
 
 ![不要过早取消 Actions 运行](docs/images/faq/action-cancel-too-early.svg)
 
@@ -174,6 +215,11 @@ All week-free games are already in the library
 
 这些 zip 里通常已经包含定位问题所需的完整日志、截图和 `purchase_debug` 文本。GitHub issue 支持直接上传 `.zip` 文件。
 
+补充说明：
+
+- 如果你的 fork 是公开仓库，通常附上本次 Actions 运行链接即可，维护者一般可以直接查看对应页面。
+- 如果你的 fork 是私有仓库，请务必上传本次运行实际出现的 artifact zip；维护者无法直接访问私有仓库的 Actions 页面和运行产物。
+
 ---
 
 ## 本地单次调试
@@ -191,11 +237,9 @@ All week-free games are already in the library
 
 ## 常见问题
 
-### 1. 登录偶尔失败，一次成功一次失败
+### 1. 登录偶发失败
 
-这是正常现象之一。GitHub Actions 使用的是共享云 IP，Epic 对风控比较敏感。常见表现包括登录页验证码一次过、一次不过，偶发 `captcha_invalid`，或者同一个账号隔一会儿又能成功。
-
-另外，不要看到运行了几分钟还没结束就手动点 `Cancel workflow`。有些成功案例会在大量重试后，10 到 20 分钟才最终通过。
+**原因**：GitHub Actions 环境采用公共 IP，易触发 Epic 严格风控，导致验证码成功率波动，属预期内现象。
 
 ### 2. 日志里出现 `privacy-policy correction` 或卡在隐私政策页面
 
@@ -203,21 +247,43 @@ All week-free games are already in the library
 
 处理方式很简单：先在你自己的正常浏览器里手动登录 Epic，完成这个确认页，然后再重新运行 Actions。
 
-### 3. 页面弹出 `One more step`
+### 3. 日志里出现 `two_factor_authentication.required` 或页面跳到 `/id/login/mfa`
+
+这说明 Epic 账号的二步验证还没有关闭。当前项目不支持处理 Epic 的邮箱 / 短信 / 验证器二步验证，所以这类情况需要先在 Epic 账号设置里手动关闭，再重新运行。
+
+如果你看到下面这些信号，通常都可以按“2FA 没关”处理：
+
+- `errors.com.epicgames.common.two_factor_authentication.required`
+- `Two-Factor authentication required to process request`
+- 页面跳转到 `/id/login/mfa`
+
+处理方式：
+
+1. 在你自己的正常浏览器里登录 Epic 账号
+2. 进入账号安全设置页面
+3. 把当前启用的验证方式全部点 `Remove`
+4. 确认邮箱验证、短信验证、验证器等二步验证都已关闭
+5. 重新运行 Actions
+
+参考界面如下：
+
+![Epic 2FA remove methods](docs/images/faq/epic-2fa-remove-methods.png)
+
+### 4. 页面弹出 `One more step`
 
 这不是异常，是 Epic 结账阶段追加的人机校验。
 
-现在项目已经能处理这类二次安全验证。你看到下面这种弹窗，不代表脚本坏了：
+**说明**：此为 Epic 结账阶段追加的安全校验机制。项目已适配该环节的自动化处理逻辑，出现这类弹窗不代表脚本已经失效。
 
 ![Checkout Security Check](docs/images/faq/checkout-security-check.png)
 
-### 4. 页面提示 `Device not supported`
+### 5. 页面提示 `Device not supported`
 
 这个提示通常出现在商品只支持 Windows，而 GitHub Actions 运行环境是 Linux 的时候。
 
 它本身不一定代表领取失败。当前脚本会尝试自动点击弹窗里的 `Continue` 继续进入后续流程。
 
-### 5. 为什么工作流显示成功，但游戏没入库
+### 6. 为什么工作流显示成功，但游戏没入库
 
 过去常见根因有：
 
@@ -255,7 +321,17 @@ environment:
   - GLM_MODEL=glm-4.6v
 ```
 
-Gemini / AiHubMix 示例：
+Gemini 官方接口示例：
+
+```yaml
+environment:
+  - LLM_PROVIDER=gemini
+  - GEMINI_API_KEY=your_gemini_key
+  - GEMINI_BASE_URL=
+  - GEMINI_MODEL=gemini-2.5-pro
+```
+
+AiHubMix 示例：
 
 ```yaml
 environment:
@@ -283,7 +359,7 @@ docker compose up -d --build
 
 ---
 
-## 致谢
+## 项目来源与参考
 
 本项目基于 `QIN2DIM/epic-awesome-gamer` 实现，并参考了 `10000ge10000/epic-kiosk`：
 
@@ -293,7 +369,7 @@ docker compose up -d --build
 | [10000ge10000/epic-kiosk](https://github.com/10000ge10000/epic-kiosk) | GitHub Actions 化和文档组织方式的重要参考 |
 | [LINUX DO](https://linux.do/t/topic/2036835/4) | 社区交流、反馈与项目推广支持 |
 
-感谢原作者和维护者的工作。
+感谢原作者、维护者和社区的长期积累。
 
 ---
 
@@ -323,3 +399,53 @@ docker compose up -d --build
     />
   </picture>
 </a>
+
+---
+
+## 社区致谢
+
+本项目的持续完善，离不开每一位在遇到报错时没有选择放弃，而是耐心回传完整错误现场的使用者。
+
+许多边界情况的修复，并非源自开发者的独自排查，而是建立在大家主动提供的详实日志、截图与复现步骤之上。正是这些真实的报错数据，让各种隐蔽的问题得以被精准定位并解决。
+
+在此，向所有提供过反馈的用户致以由衷的感谢。是你们投入的时间与提供的测试数据，逐步扫除了开发过程中的盲区，让这个项目日益稳定，切实帮助到了更多人。
+
+<div align="center">
+  <sub>感谢每一位提过 issue、上传过 artifact、留下过真实失败案例的朋友。</sub>
+</div>
+
+<p align="center">
+  <a href="https://github.com/AaronL725"><img src="https://github.com/AaronL725.png?size=96" width="64" height="64" alt="@AaronL725" /></a>
+  <a href="https://github.com/cita-777"><img src="https://github.com/cita-777.png?size=96" width="64" height="64" alt="@cita-777" /></a>
+  <a href="https://github.com/1208nn"><img src="https://github.com/1208nn.png?size=96" width="64" height="64" alt="@1208nn" /></a>
+  <a href="https://github.com/LGDhuanghe"><img src="https://github.com/LGDhuanghe.png?size=96" width="64" height="64" alt="@LGDhuanghe" /></a>
+  <a href="https://github.com/AdjieC"><img src="https://github.com/AdjieC.png?size=96" width="64" height="64" alt="@AdjieC" /></a>
+</p>
+
+<!-- <p align="center">
+  <sub>
+    <a href="https://github.com/AaronL725"><b>AaronL725</b></a> ·
+    <a href="https://github.com/cita-777"><b>cita-777</b></a> ·
+    <a href="https://github.com/1208nn"><b>1208nn</b></a> ·
+    <a href="https://github.com/LGDhuanghe"><b>LGDhuanghe</b></a> ·
+    <a href="https://github.com/AdjieC"><b>AdjieC</b></a>
+  </sub>
+</p> -->
+
+<!--
+Avatar wall template:
+
+<p align="center">
+  <a href="https://github.com/<username-1>"><img src="https://github.com/<username-1>.png?size=96" width="64" height="64" alt="@<username-1>" /></a>
+  <a href="https://github.com/<username-2>"><img src="https://github.com/<username-2>.png?size=96" width="64" height="64" alt="@<username-2>" /></a>
+  <a href="https://github.com/<username-3>"><img src="https://github.com/<username-3>.png?size=96" width="64" height="64" alt="@<username-3>" /></a>
+</p>
+
+<p align="center">
+  <sub>
+    <a href="https://github.com/<username-1>"><b><username-1></b></a> ·
+    <a href="https://github.com/<username-2>"><b><username-2></b></a> ·
+    <a href="https://github.com/<username-3>"><b><username-3></b></a>
+  </sub>
+</p>
+-->

@@ -45,7 +45,7 @@ class EpicSettings(AgentConfig):
     GEMINI_API_KEY: SecretStr | None = Field(default=None, description="Gemini/AiHubMix API key")
 
     GEMINI_BASE_URL: str = Field(
-        default="https://aihubmix.com", description="Gemini/AiHubMix base URL"
+        default="", description="Optional Gemini-compatible base URL override"
     )
 
     GEMINI_MODEL: str = Field(default="gemini-2.5-pro", description="Gemini default model")

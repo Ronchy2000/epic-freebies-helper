@@ -7,6 +7,8 @@ Language versions:
 
 The repository already includes [`.github/workflows/epic-gamer.yml`](epic-gamer.yml). Using it directly is the recommended way to run scheduled claims.
 
+The default schedule is now once per week: `Thursday 23:20 China Standard Time` (`UTC 15:20` in GitHub cron). That puts the run after the weekly Epic refresh, which is a better default for most users.
+
 ## What the Workflow Does
 
 The workflow runs the following steps on a GitHub-hosted runner:
@@ -21,6 +23,14 @@ The workflow runs the following steps on a GitHub-hosted runner:
 
 The workflow is triggered by GitHub `schedule` and `workflow_dispatch`. APScheduler inside the repository is disabled in this mode to avoid duplicate scheduling.
 
+## Default Schedule
+
+- Default schedule: once every Thursday
+- GitHub cron: `20 15 * * 4`
+- Time: `Thursday 15:20 UTC` / `Thursday 23:20 China Standard Time`
+
+If you want a different time, edit the `schedule` section inside [`.github/workflows/epic-gamer.yml`](epic-gamer.yml). The easiest way is to open that file on GitHub, click the pencil icon, update the cron line, and commit the change.
+
 ## Required Secrets
 
 Required in all cases:
@@ -30,13 +40,22 @@ Required in all cases:
 | `EPIC_EMAIL` | Epic account email, with 2FA disabled |
 | `EPIC_PASSWORD` | Epic account password, with 2FA disabled |
 
-If you use Gemini / AiHubMix:
+If you use the official Gemini API:
 
 | Secret | Description |
 | --- | --- |
 | `LLM_PROVIDER` | Recommended value: `gemini` |
-| `GEMINI_API_KEY` | Gemini or AiHubMix key |
-| `GEMINI_BASE_URL` | Optional, defaults to `https://aihubmix.com` |
+| `GEMINI_API_KEY` | Gemini API key |
+| `GEMINI_BASE_URL` | Leave empty to use the official default endpoint |
+| `GEMINI_MODEL` | Optional, defaults to `gemini-2.5-pro` |
+
+If you use a Gemini-compatible relay such as AiHubMix:
+
+| Secret | Description |
+| --- | --- |
+| `LLM_PROVIDER` | Recommended value: `gemini` |
+| `GEMINI_API_KEY` | AiHubMix key |
+| `GEMINI_BASE_URL` | For example `https://aihubmix.com` |
 | `GEMINI_MODEL` | Optional, defaults to `gemini-2.5-pro` |
 
 If you use GLM:
@@ -76,13 +95,15 @@ The lower-level dependency is `hcaptcha-challenger`, and internally it uses `goo
 
 This repository now includes an adapter layer:
 
-- Gemini / AiHubMix continues to use the existing compatibility patch.
+- The official Gemini API and AiHubMix-style Gemini-compatible relays continue to use the existing compatibility patch.
 - GLM is translated automatically into Zhipu's OpenAI-compatible `chat/completions` requests.
 
 That is why GLM here should use a vision-capable model such as `glm-4.6v`, not a plain text coding model.
 If `glm-4.6v-flash` starts returning overload messages such as "the current model is too busy", switching to `GLM_MODEL=glm-4.6v` is usually more stable.
 
 ## Recommended First Run
+
+After forking, open the `Actions` page in your fork, enter `Epic Awesome Gamer (Scheduled)`, and click `Enable workflow` once, or GitHub will not activate the scheduled run for that fork.
 
 1. Fork the repository.
 2. Make the fork private.
@@ -113,6 +134,11 @@ If the logs are still retrying captcha challenges, do not click `Cancel workflow
 
 The workflow now attempts to upload an extra `epic-screenshots-<run_id>` artifact. This artifact only appears at the bottom of the run page when the login, risk-control, or auth flow actually saved screenshots. If the logs only show messages like `Timeout waiting for #email`, `Just a moment...`, or `One more step`, and the Artifacts section contains a screenshot package, inspect that artifact first.
 
+If you need to report a failed or suspicious run, keep this distinction in mind:
+
+- For a public fork, the Actions run URL is usually enough because maintainers can inspect the run page directly.
+- For a private fork, upload the artifact zip files that were actually generated for that run. Maintainers cannot access private Actions pages or private run artifacts.
+
 ### 2. Logs mention `privacy-policy correction`
 
 This is usually not a `GLM`, `Gemini`, or `AiHubMix` API issue. It means the Epic account was redirected after login to a page like `/id/login/correction/privacy-policy`.
@@ -133,6 +159,8 @@ Example log for a 429 rate-limit case:
 
 ![GLM 429 rate limit log](../../docs/images/faq/glm-429-rate-limit.png)
 
-### 4. Why run daily instead of weekly?
+### 4. Why is the default schedule weekly now?
 
-Running once per day is safer on GitHub Actions. The script itself decides whether there is any new weekly free content and exits quickly when there is nothing to claim.
+Epic weekly freebies usually refresh on Thursday. For most regular users, running once after the refresh is a better default: it uses fewer GitHub Actions minutes and matches the real claim cycle more closely.
+
+If you prefer more redundancy, you can still edit the workflow and run it multiple times per week, or keep using manual `Run workflow` as a fallback.
