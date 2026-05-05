@@ -233,6 +233,9 @@ All week-free games are already in the library
 
 `.env`、`.venv`、`app/volumes/` 都已经被 `.gitignore` 忽略，不会被提交到 GitHub。
 
+> [!TIP]
+> 如果你的密码或 API Key 含有 `$`、`\`、`#`、`` ` `` 等字符，请用单引号包起来，例如 `EPIC_PASSWORD='abc$def'`，避免 `python-dotenv` 把 `$xxx` 当成变量插值丢失字符。GitHub Actions Secrets 不受此影响。
+
 ---
 
 ## 常见问题

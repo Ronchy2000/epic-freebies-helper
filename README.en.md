@@ -220,6 +220,9 @@ If you want to reproduce the same entrypoint locally, use the repository's built
 
 `.env`, `.venv`, and `app/volumes/` are already ignored by `.gitignore`, so they will not be committed to GitHub.
 
+> [!TIP]
+> If your password or API key contains `$`, `\`, `#`, or `` ` ``, wrap the value in single quotes (e.g. `EPIC_PASSWORD='abc$def'`) so that `python-dotenv` does not treat `$xxx` as variable interpolation and silently drop characters. GitHub Actions Secrets are not affected.
+
 ---
 
 ## FAQ
