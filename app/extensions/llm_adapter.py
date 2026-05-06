@@ -290,6 +290,13 @@ def _coerce_area_box(value: Any) -> dict[str, int] | None:
     return None
 
 
+def _box_center_point(box: dict[str, int]) -> dict[str, int]:
+    return {
+        "x": (box["x_min"] + box["x_max"]) // 2,
+        "y": (box["y_min"] + box["y_max"]) // 2,
+    }
+
+
 def _extract_area_boxes_from_text(text: str) -> list[dict[str, int]]:
     stripped = text.strip()
     if not stripped:
@@ -369,7 +376,7 @@ def _build_area_select_payload(
     return {
         "challenge_prompt": challenge_prompt,
         "inferred_rule": inferred_rule,
-        "points": boxes,
+        "points": [_box_center_point(box) for box in boxes],
     }
 
 
