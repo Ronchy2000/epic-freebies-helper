@@ -45,7 +45,7 @@ class EpicSettings(AgentConfig):
     GEMINI_API_KEY: SecretStr | None = Field(default=None, description="Gemini/AiHubMix API key")
 
     GEMINI_BASE_URL: str = Field(
-        default="https://aihubmix.com", description="Gemini/AiHubMix base URL"
+        default="", description="Optional Gemini-compatible base URL override"
     )
 
     GEMINI_MODEL: str = Field(default="gemini-2.5-pro", description="Gemini default model")
@@ -82,7 +82,7 @@ class EpicSettings(AgentConfig):
 
     EPIC_EMAIL: str = Field(default_factory=lambda: _env("EPIC_EMAIL"))
     EPIC_PASSWORD: SecretStr = Field(default_factory=lambda: _env("EPIC_PASSWORD"))
-    DISABLE_BEZIER_TRAJECTORY: bool = Field(default=True)
+    DISABLE_BEZIER_TRAJECTORY: bool = Field(default=False)
     WAIT_FOR_CHALLENGE_VIEW_TO_RENDER_MS: int = Field(default=3000)
 
     CHALLENGE_CLASSIFIER_MODEL: str = Field(default="")
@@ -199,6 +199,33 @@ class EpicSettings(AgentConfig):
         target_ = USER_DATA_DIR.joinpath(f"{self.EPIC_EMAIL}{suffix}")
         target_.mkdir(parents=True, exist_ok=True)
         return target_
+
+    @property
+    def llm_configuration_error(self) -> str | None:
+        provider = (self.LLM_PROVIDER or "").strip().lower()
+
+        if provider == "glm" and self.GLM_API_KEY is None:
+            return (
+                "Invalid LLM configuration: LLM_PROVIDER=glm but GLM_API_KEY is empty. "
+                "Set GLM_API_KEY in GitHub Actions Secrets, or switch LLM_PROVIDER to gemini "
+                "if you intend to use Gemini/AiHubMix."
+            )
+
+        if provider == "gemini" and self.GEMINI_API_KEY is None:
+            return (
+                "Invalid LLM configuration: LLM_PROVIDER=gemini but GEMINI_API_KEY is empty. "
+                "Set GEMINI_API_KEY in GitHub Actions Secrets, or switch LLM_PROVIDER to glm "
+                "if you intend to use GLM."
+            )
+
+        if provider == "deepseek" and self.DEEPSEEK_API_KEY is None:
+            return (
+                "Invalid LLM configuration: LLM_PROVIDER=deepseek but DEEPSEEK_API_KEY is empty. "
+                "Set DEEPSEEK_API_KEY in GitHub Actions Secrets, or switch LLM_PROVIDER to glm "
+                "or gemini if you intend to use another provider."
+            )
+
+        return None
 
 
 settings = EpicSettings()

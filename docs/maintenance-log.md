@@ -445,3 +445,21 @@
 - 处理结果：
   - 在中英文 README 和 workflow 文档中补充一句直白说明。
   - 明确写出操作入口：进入 Fork 仓库的 `Actions` 页面，打开 `Epic Awesome Gamer (Scheduled)`，点击一次 `Enable workflow`。
+
+### 2026-07-06 将 DeepSeek 分支补齐领取流程修复并收敛 provider 兼容配置
+
+- 现象：
+  - `add-deepseekv4-provider` 分支落后于 `master`，缺少近期已经修过的领取确认、二次商品结算、设备弹窗处理和运行收口逻辑。
+  - 同时该分支的 `llm_adapter` 合并冲突未解完，`LLM_PROVIDER=deepseek` 相关配置校验也还不完整。
+- 根因判断：
+  - DeepSeek provider 分支长期独立演进，后续主线修复没有及时合入，导致 provider 兼容改动和领取链路修复分叉。
+  - OpenAI-compatible adapter 在合并时对坐标归一化、图片载荷格式、Gemini 默认端点日志等逻辑产生冲突，需要人工选定保留行为。
+- 改动文件：
+  - `app/extensions/llm_adapter.py`
+  - `app/settings.py`
+  - `.env.example`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 保留 DeepSeek OpenAI-compatible client，同时并入主线对 area-select 坐标中心点归一化和 Gemini 默认端点处理的修复。
+  - 补上 `LLM_PROVIDER=deepseek` 时缺失的 `DEEPSEEK_API_KEY` 配置校验，避免误配后静默退回其他 provider。
+  - 更新 `.env.example`，明确 DeepSeek 变量、Gemini 官方端点说明和本地 `.env` 密码引号注意事项，降低兼容配置误差。

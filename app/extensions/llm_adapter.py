@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import ast
 import base64
 import json
 import mimetypes
@@ -15,6 +16,7 @@ KNOWN_CHALLENGE_TYPES = {
     "image_drag_single",
     "image_drag_multiple",
     "image_drag_multi",
+    "image_label_single_select",
     "image_label_binary",
     "image_label_multi_select",
     "image_label_area_select",
@@ -22,6 +24,28 @@ KNOWN_CHALLENGE_TYPES = {
 }
 
 CHALLENGE_TYPE_ALIASES = {"image_drag_multi": "image_drag_multiple"}
+SCHEMA_CHALLENGE_TYPE_ALIASES = {
+    "image_drag_multiple": "image_drag_multi",
+    "image_drag_multi": "image_drag_multiple",
+}
+
+CHALLENGE_PROMPT_ALIASES = (
+    "challenge_prompt",
+    "Challenge Prompt",
+    "challengePrompt",
+    "requester_question",
+)
+
+POINTS_ALIASES = ("points", "point", "coordinates", "Coordinates")
+
+PATHS_ALIASES = ("paths", "path", "coordinates", "Coordinates")
+
+GLM_VISUAL_COORDINATE_INSTRUCTION = (
+    "For image coordinate challenges, read the gray coordinate grid printed on the image. "
+    "Return final JSON coordinates in that printed grid coordinate system, not local image "
+    "pixels. Prefer the center of the target object unless the schema explicitly requires "
+    "a bounding box or a drag path."
+)
 
 
 def _ensure_list(value: Any) -> list[Any]:
@@ -56,6 +80,44 @@ def _extract_json_payload(text: str) -> dict[str, Any]:
         if match:
             stripped = match.group(1).strip()
     return json.loads(stripped)
+
+
+def _extract_literal_payload(text: str) -> Any | None:
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    with suppress(Exception):
+        return _extract_json_payload(stripped)
+
+    with suppress(Exception):
+        if stripped.startswith("```"):
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)```", stripped)
+            if match:
+                stripped = match.group(1).strip()
+        return ast.literal_eval(stripped)
+
+    return None
+
+
+def _payload_value(payload: dict[str, Any], aliases: tuple[str, ...]) -> Any:
+    for alias in aliases:
+        if alias in payload:
+            return payload[alias]
+    return None
+
+
+def _coerce_challenge_prompt(payload: dict[str, Any]) -> str:
+    value = _payload_value(payload, CHALLENGE_PROMPT_ALIASES)
+    if isinstance(value, dict):
+        for key in ("en", "text", "value"):
+            candidate = value.get(key)
+            if candidate is not None:
+                return str(candidate)
+        return ""
+    if value is None:
+        return ""
+    return str(value)
 
 
 def _normalize_glm_response_text(text: str) -> str:
@@ -123,6 +185,39 @@ def _extract_challenge_type(text: str) -> str | None:
     if stripped in KNOWN_CHALLENGE_TYPES:
         return stripped
     return None
+
+
+def _schema_enum_values(schema: Any, field_name: str) -> set[str]:
+    if not (isinstance(schema, type) and issubclass(schema, BaseModel)):
+        return set()
+
+    field = getattr(schema, "model_fields", {}).get(field_name)
+    if not field:
+        return set()
+
+    annotation = getattr(field, "annotation", None)
+    members = getattr(annotation, "__members__", None)
+    if not members:
+        return set()
+
+    return {str(getattr(member, "value", member)) for member in members.values()}
+
+
+def _coerce_challenge_type_for_schema(
+    challenge_type: str | None, schema: Any, field_name: str
+) -> str | None:
+    if not challenge_type:
+        return None
+
+    enum_values = _schema_enum_values(schema, field_name)
+    if not enum_values or challenge_type in enum_values:
+        return challenge_type
+
+    alias = SCHEMA_CHALLENGE_TYPE_ALIASES.get(challenge_type)
+    if alias in enum_values:
+        return alias
+
+    return challenge_type
 
 
 def _extract_drag_points_from_text(text: str) -> tuple[dict[str, int], dict[str, int]] | None:
@@ -197,22 +292,74 @@ def _extract_drag_points_from_text(text: str) -> tuple[dict[str, int], dict[str,
     return None
 
 
+def _extract_drag_points_from_value(value: Any) -> tuple[dict[str, int], dict[str, int]] | None:
+    if isinstance(value, dict):
+        for source_key, target_key in (
+            ("source", "target"),
+            ("from", "to"),
+            ("source_coordinates", "target_coordinates"),
+            ("source_position", "target_position"),
+            ("start", "end"),
+            ("start_point", "end_point"),
+        ):
+            if source_key in value and target_key in value:
+                return _build_drag_points_pair(value.get(source_key), value.get(target_key))
+
+        paths_payload = value.get("paths")
+        if isinstance(paths_payload, list):
+            for item in paths_payload:
+                points = _extract_drag_points_from_value(item)
+                if points:
+                    return points
+
+        coordinates_payload = _payload_value(value, PATHS_ALIASES)
+        if coordinates_payload is not None and coordinates_payload is not value:
+            points = _extract_drag_points_from_value(coordinates_payload)
+            if points:
+                return points
+
+    if isinstance(value, list):
+        for item in value:
+            points = _extract_drag_points_from_value(item)
+            if points:
+                return points
+
+    if isinstance(value, str):
+        parsed = _extract_literal_payload(value)
+        if parsed is not None and parsed != value:
+            points = _extract_drag_points_from_value(parsed)
+            if points:
+                return points
+        return _extract_drag_points_from_text(value)
+
+    return None
+
+
+def _build_drag_points_pair(
+    source: Any, target: Any
+) -> tuple[dict[str, int], dict[str, int]] | None:
+    start_point = _coerce_point(source)
+    end_point = _coerce_point(target)
+    if not start_point or not end_point:
+        return None
+    return start_point, end_point
+
+
 def _extract_points_from_text(text: str) -> list[dict[str, int]]:
     stripped = text.strip()
     if not stripped:
         return []
 
-    with suppress(Exception):
-        payload = _extract_json_payload(stripped)
-        points_payload = payload.get("points")
-        if isinstance(points_payload, list):
-            points = []
-            for point in points_payload:
-                normalized = _coerce_point(point)
-                if normalized:
-                    points.append(normalized)
-            if points:
-                return points
+    csv_point = re.fullmatch(r"\s*(\d+)\s*,\s*(\d+)\s*", stripped)
+    if csv_point:
+        x, y = map(int, csv_point.groups())
+        return [{"x": x, "y": y}]
+
+    literal_payload = _extract_literal_payload(stripped)
+    if literal_payload is not None:
+        points = _extract_points_from_value(literal_payload)
+        if points:
+            return points
 
     tuple_points = re.findall(r"\((\d+)\s*,\s*(\d+)\)", stripped)
     if tuple_points:
@@ -221,6 +368,53 @@ def _extract_points_from_text(text: str) -> list[dict[str, int]]:
     array_points = re.findall(r"\[\s*(\d+)\s*,\s*(\d+)\s*\]", stripped)
     if array_points:
         return [{"x": int(x), "y": int(y)} for x, y in array_points]
+
+    return []
+
+
+def _extract_points_from_value(value: Any) -> list[dict[str, int]]:
+    if isinstance(value, dict):
+        direct_point = _coerce_point(value)
+        if direct_point:
+            return [direct_point]
+
+        points_payload = _payload_value(value, POINTS_ALIASES)
+        if points_payload is not None and points_payload is not value:
+            points = _extract_points_from_value(points_payload)
+            if points:
+                return points
+
+        answer_payload = value.get("answer")
+        if answer_payload is not None:
+            points = _extract_points_from_value(answer_payload)
+            if points:
+                return points
+
+    if isinstance(value, list):
+        points: list[dict[str, int]] = []
+        boxes: list[dict[str, int]] = []
+        for item in value:
+            normalized_point = _coerce_point(item)
+            if normalized_point:
+                points.append(normalized_point)
+                continue
+            normalized_box = _coerce_area_box(item)
+            if normalized_box:
+                boxes.append(normalized_box)
+        if points:
+            return points
+        if boxes:
+            return [_box_center_point(box) for box in boxes]
+
+    if isinstance(value, str):
+        parsed = _extract_literal_payload(value)
+        if parsed is not None and parsed != value:
+            points = _extract_points_from_value(parsed)
+            if points:
+                return points
+        boxes = _extract_area_boxes_from_text(value)
+        if boxes:
+            return [_box_center_point(box) for box in boxes]
 
     return []
 
@@ -272,22 +466,20 @@ def _coerce_area_box(value: Any) -> dict[str, int] | None:
     return None
 
 
+def _box_center_point(box: dict[str, int]) -> dict[str, int]:
+    return {"x": (box["x_min"] + box["x_max"]) // 2, "y": (box["y_min"] + box["y_max"]) // 2}
+
+
 def _extract_area_boxes_from_text(text: str) -> list[dict[str, int]]:
     stripped = text.strip()
     if not stripped:
         return []
 
-    with suppress(Exception):
-        payload = _extract_json_payload(stripped)
-        answer_payload = payload.get("answer")
-        if isinstance(answer_payload, list):
-            boxes = []
-            for item in answer_payload:
-                normalized = _coerce_area_box(item)
-                if normalized:
-                    boxes.append(normalized)
-            if boxes:
-                return boxes
+    literal_payload = _extract_literal_payload(stripped)
+    if literal_payload is not None:
+        boxes = _extract_area_boxes_from_value(literal_payload)
+        if boxes:
+            return boxes
 
     dict_boxes = re.findall(
         r'"x_min"\s*:\s*(\d+)\s*,\s*"y_min"\s*:\s*(\d+)\s*,\s*"x_max"\s*:\s*(\d+)\s*,\s*"y_max"\s*:\s*(\d+)',
@@ -310,6 +502,38 @@ def _extract_area_boxes_from_text(text: str) -> list[dict[str, int]]:
     return []
 
 
+def _extract_area_boxes_from_value(value: Any) -> list[dict[str, int]]:
+    if isinstance(value, dict):
+        direct_box = _coerce_area_box(value)
+        if direct_box:
+            return [direct_box]
+
+        for alias in ("answer", *POINTS_ALIASES):
+            if alias not in value:
+                continue
+            boxes = _extract_area_boxes_from_value(value[alias])
+            if boxes:
+                return boxes
+
+    if isinstance(value, list):
+        boxes = []
+        for item in value:
+            normalized = _coerce_area_box(item)
+            if normalized:
+                boxes.append(normalized)
+        if boxes:
+            return boxes
+
+    if isinstance(value, str):
+        parsed = _extract_literal_payload(value)
+        if parsed is not None and parsed != value:
+            boxes = _extract_area_boxes_from_value(parsed)
+            if boxes:
+                return boxes
+
+    return []
+
+
 def _build_points_payload(
     points: list[dict[str, int]], *, challenge_prompt: str = "", inferred_rule: str = ""
 ) -> dict[str, Any] | None:
@@ -325,7 +549,11 @@ def _build_area_select_payload(
     if not boxes:
         return None
 
-    return {"challenge_prompt": challenge_prompt, "inferred_rule": inferred_rule, "points": boxes}
+    return {
+        "challenge_prompt": challenge_prompt,
+        "inferred_rule": inferred_rule,
+        "points": [_box_center_point(box) for box in boxes],
+    }
 
 
 def _build_drag_payload(
@@ -370,7 +598,7 @@ def _normalize_glm_answer_value(
             "request_type": challenge_type,
         }
 
-    points = _extract_drag_points_from_text(stripped)
+    points = _extract_drag_points_from_value(stripped)
     if points:
         return _build_drag_payload(
             points[0], points[1], challenge_prompt=challenge_prompt, inferred_rule=inferred_rule
@@ -412,7 +640,7 @@ def _coerce_payload_for_schema(payload: dict[str, Any], schema: Any, text: str) 
     if not fields:
         return payload
 
-    challenge_prompt = str(payload.get("challenge_prompt") or "")
+    challenge_prompt = _coerce_challenge_prompt(payload)
     inferred_rule = str(payload.get("inferred_rule") or "")
 
     if "paths" in fields:
@@ -436,6 +664,13 @@ def _coerce_payload_for_schema(payload: dict[str, Any], schema: Any, text: str) 
                 challenge_prompt=challenge_prompt,
                 inferred_rule=inferred_rule,
             )
+        elif "source_coordinates" in payload and "target_coordinates" in payload:
+            normalized_drag = _build_drag_payload(
+                payload.get("source_coordinates"),
+                payload.get("target_coordinates"),
+                challenge_prompt=challenge_prompt,
+                inferred_rule=inferred_rule,
+            )
         elif "source_position" in payload and "target_position" in payload:
             normalized_drag = _build_drag_payload(
                 payload.get("source_position"),
@@ -450,6 +685,16 @@ def _coerce_payload_for_schema(payload: dict[str, Any], schema: Any, text: str) 
                 challenge_prompt=challenge_prompt,
                 inferred_rule=inferred_rule,
             )
+        elif _payload_value(payload, PATHS_ALIASES) is not None:
+            coordinate_payload = _payload_value(payload, PATHS_ALIASES)
+            extracted_drag = _extract_drag_points_from_value(coordinate_payload)
+            if extracted_drag:
+                normalized_drag = _build_drag_payload(
+                    extracted_drag[0],
+                    extracted_drag[1],
+                    challenge_prompt=challenge_prompt,
+                    inferred_rule=inferred_rule,
+                )
 
         if not normalized_drag:
             points_payload = payload.get("points")
@@ -495,6 +740,16 @@ def _coerce_payload_for_schema(payload: dict[str, Any], schema: Any, text: str) 
                     boxes, challenge_prompt=challenge_prompt, inferred_rule=inferred_rule
                 )
 
+        coordinate_payload = _payload_value(payload, POINTS_ALIASES)
+        if coordinate_payload is not None and coordinate_payload is not payload:
+            points_payload = _build_points_payload(
+                _extract_points_from_value(coordinate_payload),
+                challenge_prompt=challenge_prompt,
+                inferred_rule=inferred_rule,
+            )
+            if points_payload:
+                return points_payload
+
         if "points" in payload:
             payload.setdefault("challenge_prompt", challenge_prompt)
             payload.setdefault("inferred_rule", inferred_rule)
@@ -523,6 +778,9 @@ def _coerce_payload_for_schema(payload: dict[str, Any], schema: Any, text: str) 
             or _extract_challenge_type(text)
             or _extract_challenge_type(str(payload.get("answer") or ""))
         )
+        challenge_type = _coerce_challenge_type_for_schema(
+            challenge_type, schema, challenge_type_field
+        )
         if challenge_type:
             normalized = {challenge_type_field: challenge_type}
             if "challenge_prompt" in fields:
@@ -535,7 +793,7 @@ def _coerce_payload_for_schema(payload: dict[str, Any], schema: Any, text: str) 
 
 
 def _normalize_glm_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    challenge_prompt = str(payload.get("challenge_prompt") or "")
+    challenge_prompt = _coerce_challenge_prompt(payload)
     inferred_rule = str(payload.get("inferred_rule") or "")
 
     normalized_answer = _normalize_glm_answer_value(
@@ -682,10 +940,12 @@ class _OpenAICompatibleAsyncModels:
 
     def _build_messages(self, contents: Any, config: Any) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
+        system_messages: list[str] = []
+        has_image = False
 
         system_instruction = getattr(config, "system_instruction", None)
         if system_instruction:
-            messages.append({"role": "system", "content": str(system_instruction)})
+            system_messages.append(str(system_instruction))
 
         for content in _ensure_list(contents):
             role = getattr(content, "role", None) or "user"
@@ -693,10 +953,18 @@ class _OpenAICompatibleAsyncModels:
             for part in _ensure_list(getattr(content, "parts", None)):
                 item = self._part_to_content_item(part)
                 if item:
+                    if item.get("type") == "image_url":
+                        has_image = True
                     items.append(item)
             if not items:
                 continue
             messages.append({"role": role, "content": items})
+
+        if has_image:
+            system_messages.append(GLM_VISUAL_COORDINATE_INSTRUCTION)
+
+        if system_messages:
+            messages.insert(0, {"role": "system", "content": "\n\n".join(system_messages)})
 
         return messages
 
@@ -921,15 +1189,18 @@ def apply_gemini_patch(settings: Any):
             kwargs["api_key"] = settings.GEMINI_API_KEY.get_secret_value()
 
             base_url = settings.GEMINI_BASE_URL.rstrip("/")
-            if base_url.endswith("/v1"):
-                base_url = base_url[:-3]
-            if not base_url.endswith("/gemini"):
-                base_url = f"{base_url}/gemini"
+            if base_url:
+                if base_url.endswith("/v1"):
+                    base_url = base_url[:-3]
+                if not base_url.endswith("/gemini"):
+                    base_url = f"{base_url}/gemini"
 
-            kwargs["http_options"] = types.HttpOptions(base_url=base_url)
-            logger.info(
-                f"🚀 Gemini 兼容补丁已应用 | 模型: {settings.GEMINI_MODEL} | 地址: {base_url}"
-            )
+                kwargs["http_options"] = types.HttpOptions(base_url=base_url)
+                logger.info(
+                    f"🚀 Gemini 兼容补丁已应用 | 模型: {settings.GEMINI_MODEL} | 地址: {base_url}"
+                )
+            else:
+                logger.info(f"🚀 Gemini 官方接口已应用默认配置 | 模型: {settings.GEMINI_MODEL}")
             orig_init(self, *args, **kwargs)
 
         genai.Client.__init__ = new_init
@@ -1000,6 +1271,14 @@ def apply_llm_patch(settings: Any):
         apply_deepseek_patch(settings)
         return
     if provider == "glm":
+        if not settings.GLM_API_KEY:
+            logger.error("LLM provider misconfigured | LLM_PROVIDER=glm but GLM_API_KEY is empty")
+            return
         apply_glm_patch(settings)
         return
+
+    if provider == "gemini" and not settings.GEMINI_API_KEY:
+        logger.error("LLM provider misconfigured | LLM_PROVIDER=gemini but GEMINI_API_KEY is empty")
+        return
+
     apply_gemini_patch(settings)

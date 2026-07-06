@@ -39,7 +39,7 @@ services:
       # ----------------------------------------
       - ENABLE_APSCHEDULER=true
       
-      - DISABLE_BEZIER_TRAJECTORY=true
+      - DISABLE_BEZIER_TRAJECTORY=false
       - EXECUTION_TIMEOUT=120
       - RESPONSE_TIMEOUT=30
       - RETRY_ON_FAILURE=true

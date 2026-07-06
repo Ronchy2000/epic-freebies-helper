@@ -12,6 +12,7 @@ using browser automation and scheduling capabilities.
 
 import asyncio
 import json
+import os
 import signal
 from contextlib import suppress
 from datetime import datetime
@@ -37,6 +38,13 @@ init_log(
 
 # Default timezone for scheduling operations
 TIMEZONE = timezone("Asia/Shanghai")
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
 @logger.catch(reraise=True)
@@ -79,9 +87,6 @@ async def execute_browser_tasks(headless: bool = True):
             for p in browser.pages:
                 await p.close()
 
-        with suppress(Exception):
-            await browser.close()
-
         logger.debug("Browser tasks execution finished successfully")
 
 
@@ -92,7 +97,7 @@ async def deploy():
     This function runs the collection process immediately and optionally
     sets up a scheduled task for automatic recurring execution.
     """
-    headless = True
+    headless = _env_bool("HEADLESS", True)
 
     # Log current configuration for debugging
     sj = settings.model_dump(mode="json")
@@ -100,6 +105,10 @@ async def deploy():
     logger.debug(
         f"Starting deployment with configuration: {json.dumps(sj, indent=2, ensure_ascii=False)}"
     )
+
+    if configuration_error := settings.llm_configuration_error:
+        logger.error(configuration_error)
+        raise RuntimeError(configuration_error)
 
     # Execute an immediate collection task
     await execute_browser_tasks(headless=headless)

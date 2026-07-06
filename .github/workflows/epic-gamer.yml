@@ -70,6 +70,7 @@ jobs:
           SPATIAL_POINT_REASONER_MODEL: ${{ secrets.SPATIAL_POINT_REASONER_MODEL }}
           SPATIAL_PATH_REASONER_MODEL: ${{ secrets.SPATIAL_PATH_REASONER_MODEL }}
           BROWSER_BACKEND: auto
+          DISABLE_BEZIER_TRAJECTORY: false
           # 在 Actions 中我们依靠 GitHub 的 cron 触发，所以关闭内部调度器
           ENABLE_APSCHEDULER: false
           MPLBACKEND: Agg

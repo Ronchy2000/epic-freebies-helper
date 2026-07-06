@@ -75,7 +75,9 @@ async def collect_epic_games_task():
         page = browser.pages[0] if browser.pages else await browser.new_page()
 
         agent = EpicAuthorization(page)
-        await agent.invoke()
+        is_authenticated = await agent.invoke()
+        if not is_authenticated:
+            raise RuntimeError("Authentication failed, aborting this run")
 
         game_page = await browser.new_page()
         agent = EpicAgent(game_page)

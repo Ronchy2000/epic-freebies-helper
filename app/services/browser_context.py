@@ -1,28 +1,33 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import AsyncIterator
 
-from browserforge.fingerprints import Screen
-from camoufox import AsyncCamoufox
 from loguru import logger
 from playwright.async_api import BrowserContext, ViewportSize, async_playwright
 from requests import HTTPError, RequestException
 
 from settings import RECORD_DIR, settings
 
-_SCREEN = Screen(max_width=1920, max_height=1080, min_height=1080, min_width=1920)
 _VIEWPORT = ViewportSize(width=1920, height=1080)
 
 
 def _camoufox_launch_options(headless: bool | str) -> dict:
+    from browserforge.fingerprints import Screen
+
+    screen = Screen(max_width=1920, max_height=1080, min_height=1080, min_width=1920)
     return {
         "persistent_context": True,
         "user_data_dir": settings.user_data_dir_for("camoufox"),
-        "screen": _SCREEN,
+        "screen": screen,
         "record_video_dir": RECORD_DIR,
         "record_video_size": _VIEWPORT,
+        "firefox_user_prefs": {
+            "network.dns.disableIPv6": True,
+            "network.proxy.type": 0,
+            "network.trr.mode": 5,
+        },
         "humanize": 0.2,
         "headless": headless,
     }
@@ -65,15 +70,21 @@ async def open_browser_context(headless: bool | str) -> AsyncIterator[BrowserCon
 
     if backend in {"auto", "camoufox"}:
         try:
-            async with AsyncCamoufox(**_camoufox_launch_options(headless)) as browser:
+            from camoufox import AsyncCamoufox
+
+            camoufox = AsyncCamoufox(**_camoufox_launch_options(headless))
+            browser = await camoufox.__aenter__()
+            try:
                 yield browser
                 return
+            finally:
+                with suppress(Exception):
+                    await camoufox.__aexit__(None, None, None)
         except Exception as err:
             if backend == "camoufox" or not _is_camoufox_bootstrap_error(err):
                 raise
             logger.warning(
-                "Camoufox bootstrap failed, falling back to Playwright Firefox. err={}",
-                err,
+                "Camoufox bootstrap failed, falling back to Playwright Firefox. err={}", err
             )
 
     async with async_playwright() as playwright:
