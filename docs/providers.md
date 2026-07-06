@@ -20,6 +20,12 @@
 | `google_genai` | Google Gemini 原生接口风格 | Gemini 官方接口、AiHubMix 这类 Gemini 兼容中转 |
 | `openai_compatible` | OpenAI 风格的 `/v1/chat/completions` 接口 | OpenAI、DeepSeek、GLM、Ollama、很多本地网关、部分第三方平台 |
 
+如果后续真的需要，再单独引入：
+
+| 协议家族 | 说明 | 当前状态 |
+| --- | --- | --- |
+| `anthropic_compatible` | Anthropic Messages 风格接口 | 暂不优先；只有出现明确的协议级能力缺口时再加 |
+
 ### 2. preset
 
 preset 是“在同一个协议家族下，给某个服务准备的一组默认值和特殊规则”。
@@ -34,6 +40,26 @@ preset 是“在同一个协议家族下，给某个服务准备的一组默认�
 - `xiaomi_mimo`
 
 这些 preset 并不是新的协议家族，而是同一协议家族下的不同目标。
+
+## 第三方中转站应该怎么理解
+
+很多“中转站”“聚合平台”“自建网关”本质上不会发明一套全新协议，而是暴露下面这几种之一：
+
+- OpenAI-compatible
+- Anthropic-compatible
+- Gemini-compatible
+
+所以在这个项目里，接第三方中转站时优先问的不是“它是哪家公司”，而是：
+
+1. 它对外是哪种协议？
+2. 这条协议是否支持图片输入？
+3. 这条协议的结构化输出是否稳定？
+4. 这条协议是否支持当前验证码链路需要的图片传输方式？
+
+如果同一个平台同时支持 OpenAI 和 Anthropic 两种协议，这个仓库当前的推荐顺序是：
+
+1. 先试 `openai_compatible`
+2. 如果确实出现协议级能力缺口，再考虑 `anthropic_compatible`
 
 ## 这个项目为什么不再按模型名逐个写 provider
 
@@ -50,6 +76,45 @@ preset 是“在同一个协议家族下，给某个服务准备的一组默认�
 
 - `GPT`、`DeepSeek`、`GLM`、`Ollama` 很多时候都能落在 `openai_compatible`
 - `Gemini` 和 `AiHubMix` 更接近 `google_genai`
+- 某些平台虽然也提供 `Anthropic` 风格入口，但只有在 OpenAI-compatible 路线覆盖不了时才值得为它单独维护一个新协议家族
+
+## 三层结构怎么分
+
+这个仓库后续接模型时，建议固定按三层理解：
+
+### 1. protocol family
+
+这是 API 形状，例如：
+
+- `google_genai`
+- `openai_compatible`
+- 未来可能的 `anthropic_compatible`
+
+### 2. preset / profile
+
+这是某个具体目标的默认配置和特殊规则，例如：
+
+- `openai`
+- `glm`
+- `deepseek`
+- `ollama`
+- `aihubmix`
+- `custom_openai_compatible`
+
+### 3. task model
+
+这是验证码子任务实际用哪个模型名：
+
+- `CHALLENGE_CLASSIFIER_MODEL`
+- `IMAGE_CLASSIFIER_MODEL`
+- `SPATIAL_POINT_REASONER_MODEL`
+- `SPATIAL_PATH_REASONER_MODEL`
+
+这样设计后：
+
+- 同一家厂商可以暴露多个协议入口
+- 同一个协议家族可以复用多个 provider preset
+- 不同验证码子任务还能继续独立调模型，而不需要新加 provider 分支
 
 ## 推荐使用方式
 
@@ -93,6 +158,8 @@ preset 是“在同一个协议家族下，给某个服务准备的一组默认�
 | `minimax` | `openai_compatible` | `https://api.minimaxi.com/v1` | `MiniMax-M2.7` | 你需要改成官方支持图片输入的模型 |
 | `xiaomi_mimo` | `openai_compatible` | 无默认值 | 无默认值 | 需从你的 MiMo 控制台填写官方 base URL 与模型名 |
 | `custom_openai_compatible` | `openai_compatible` | 无默认值 | 无默认值 | 自建网关、本地代理、第三方兼容服务 |
+
+如果某个服务官方同时支持 OpenAI-compatible 和 Anthropic-compatible，不要急着把它做成新 family，先把它当作现有 family 下的 preset/profile。
 
 ## 如何按需求选择
 
@@ -230,6 +297,23 @@ LLM_MODEL=your_model_name
 - 自建 vLLM / TGI / LocalAI / LM Studio 网关
 - 其他兼容 `/v1/chat/completions` 的第三方服务
 
+### 10. 我用支持 Anthropic 协议的第三方平台
+
+当前这个 protocol 分支还没有把 `anthropic_compatible` 作为运行时主路径落完。
+
+所以如果你手上的平台同时支持：
+
+- OpenAI-compatible
+- Anthropic-compatible
+
+优先先按 OpenAI-compatible 接入，再观察：
+
+- 图片输入是否正常
+- JSON / 结构化输出是否稳定
+- 验证码坐标与拖拽任务是否稳定
+
+只有当这些能力在 OpenAI-compatible 路线上确实不够，而 Anthropic 协议能明显补齐时，才值得继续实现新的 `anthropic_compatible` family。
+
 ## GitHub Actions 里应该填哪些 Secrets
 
 所有路线都需要：
@@ -313,6 +397,18 @@ LLM_MODEL=your_model_name
   - [DeepSeek API docs](https://api-docs.deepseek.com/)
 - MiniMax
   - [MiniMax OpenAI API compatibility](https://platform.minimaxi.com/document/Intelligent%20Assistant/OpenAI%20API%20Compatibility)
+- Anthropic
+  - [Messages API](https://docs.anthropic.com/en/api/messages)
+  - [Vision](https://docs.anthropic.com/en/docs/build-with-claude/vision)
+
+## 选择顺序建议
+
+如果你是在继续完善这个项目，而不是只是想跑通一次，建议按这个顺序考虑新接入：
+
+1. 先判断目标能不能归到 `google_genai` 或 `openai_compatible`
+2. 如果能归到现有协议家族，就只新增 preset/profile，不新增 adapter family
+3. 如果一个平台同时支持 OpenAI 和 Anthropic，两条都别急着一起做，先走 OpenAI-compatible
+4. 只有在明确出现协议级能力缺口时，再把 `anthropic_compatible` 提升为下一阶段任务
 
 ## 如果你只是想最快跑起来
 

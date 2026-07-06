@@ -615,6 +615,25 @@
   - 保留旧字段兼容：`LLM_PROVIDER`、`GEMINI_*`、`GLM_*`、`OPENAI_*`、`DEEPSEEK_*` 仍可继续使用，但新配置优先推荐 `LLM_PRESET + LLM_API_KEY + LLM_BASE_URL + LLM_MODEL`。
   - 将适配层拆到 `app/extensions/llm_protocols/` 下，`app/extensions/llm_adapter.py` 只保留薄路由入口，便于后续继续扩展协议家族和 preset。
   - GitHub Actions 和本地启动时都会输出包含 protocol、preset、model、base URL 和脱敏 Epic 邮箱的 runtime summary，便于明天按不同平台逐项测试。
+
+### 2026-07-06 在 protocol 分支补充第三方中转站与协议扩展策略
+
+- 现象：
+  - protocol-first 架构虽然已经落到分支里，但文档还没有把“第三方中转站通常只是 OpenAI / Anthropic / Gemini 协议的一种外壳”讲透。
+  - 后续如果继续接新平台，维护者仍然容易回到“按厂家名再加一个 provider 分支”的旧思路。
+- 根因判断：
+  - 现有文档已经说明了 protocol family 和 preset 的区别，但对“同一个平台可能同时提供 OpenAI-compatible 与 Anthropic-compatible 两条入口”这一类现实接入情况说明不够。
+  - 也缺少一个更明确的执行顺序：当前应优先扩展 `openai_compatible`，只有出现协议级能力缺口时再引入 `anthropic_compatible`。
+- 改动文件：
+  - `docs/provider-protocol-architecture.md`
+  - `docs/provider-protocol-migration-plan.md`
+  - `docs/providers.md`
+  - `docs/providers.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 明确把仓库的模型接入拆成三层：`protocol family -> preset/profile -> task model`。
+  - 补充第三方中转站的分类规则，强调先按协议归类，再决定是否只新增 preset。
+  - 将 `anthropic_compatible` 明确降级为下一阶段可选项，只有在 OpenAI-compatible 路线出现明确协议级缺口时才推进实现。
   - 主 README、workflow 文档、`.env.example` 和新的 provider 文档已经统一改为围绕协议家族与 preset 的说明方式，并补充官方文档入口，方便用户和初学者继续学习不同 LLM API 的协议差异。
 
 ### 2026-05-09 澄清当前仓库不要求 codex 分支名前缀

@@ -12,6 +12,12 @@ The near-term goal is:
 2. port proven OpenAI and DeepSeek work into that shape
 3. make future targets such as Ollama and local gateways additive presets instead of new architecture forks
 
+The execution order should follow protocol reuse, not vendor branding:
+
+- first consolidate `google_genai`
+- then make `openai_compatible` the main reusable expansion path
+- only after that, decide whether `anthropic_compatible` is truly needed
+
 ## Do Not Repeat Existing Work
 
 Before editing code, inspect these branches:
@@ -134,6 +140,12 @@ Important:
 - Do not create `ollama` as a separate top-level family first.
 - Add an Ollama-native path only if the OpenAI-compatible path fails for a protocol reason that cannot be solved by preset flags.
 
+This same rule applies to most third-party relays:
+
+- if a gateway offers an OpenAI-compatible route, try that first
+- if it offers both OpenAI-compatible and Anthropic-compatible routes, still start with OpenAI-compatible in this repo
+- only promote Anthropic support when a real gateway/model target proves OpenAI-compatible is not enough
+
 ## Phase 5: Evaluate GLM Placement
 
 Current repo history shows that GLM has been successful, but it also had adapter quirks.
@@ -157,6 +169,13 @@ Only after phase 1 to 5 are stable:
 
 Do not start here. It is not the current bottleneck.
 
+Decision gate before phase 6:
+
+1. identify a target users actually need
+2. confirm its official or gateway docs expose Anthropic Messages semantics
+3. confirm the needed image-input or structured-output behavior cannot be covered by the existing OpenAI-compatible route
+4. confirm the gain is worth another maintained adapter family
+
 ## Preset Registry Recommendation
 
 A registry entry should carry the resolved operational facts, for example:
@@ -173,6 +192,18 @@ A registry entry should carry the resolved operational facts, for example:
 | `supports_thinking_toggle` | `true` |
 
 This avoids re-encoding vendor facts in many files.
+
+Also treat relay/gateway facts as first-class registry data, for example:
+
+| Field | Example |
+| --- | --- |
+| `gateway_kind` | `official`, `third_party_relay`, `self_hosted` |
+| `supports_image_input` | `true` |
+| `supports_data_url_images` | `true` |
+| `supports_remote_image_url` | `false` |
+| `supports_json_schema` | `false` |
+
+This keeps "what the gateway can really do" separate from its marketing name.
 
 ## File-Level Change Budget
 
@@ -206,3 +237,18 @@ Minimum checks for each implementation step:
 4. a focused import/smoke check for resolved config selection when safe
 
 Do not claim full runtime validation unless a real run was actually performed.
+
+## What "Done On This Branch" Should Mean
+
+For the protocol branch, "done" should be interpreted in two stages:
+
+1. design done
+   - protocol family boundaries are clear
+   - preset/profile rules are documented
+   - gateway classification rules are explicit
+2. runtime done
+   - adapter code exists
+   - config resolution exists
+   - at least one real target was validated through the chosen route
+
+This branch is meant to finish stage 1 clearly before stage 2 is executed further.

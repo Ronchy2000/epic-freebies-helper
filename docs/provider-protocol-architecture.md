@@ -50,6 +50,22 @@ So the stable engineering boundary is:
 3. Apply vendor quirks as preset-level overrides inside that family.
 4. Keep login/checkout/captcha business flow unaware of provider differences.
 
+## Three-Layer Mental Model
+
+Future provider work in this repository should be described in three layers:
+
+1. `protocol family`
+   - the API shape the repository talks to
+   - examples: `google_genai`, `openai_compatible`, and a future `anthropic_compatible`
+2. `preset/profile`
+   - a concrete target under one protocol family
+   - examples: `openai`, `glm`, `deepseek`, `ollama`, `aihubmix`, `custom_openai_compatible`
+3. `task model selection`
+   - which model name is used for which captcha sub-task
+   - examples: challenge classification, image classification, point reasoning, drag-path reasoning
+
+This matters because a single vendor can expose more than one protocol shape, and one third-party gateway can front multiple upstream model families.
+
 ## Supported Protocol Families
 
 Phase-1 families:
@@ -64,6 +80,23 @@ Phase-2 optional family:
 | Protocol family | Intended targets | Status |
 | --- | --- | --- |
 | `anthropic_compatible` | Claude or vendors exposing Anthropic Messages compatibility | Add only if a real target cannot be covered by the two phase-1 families. |
+
+### Third-Party Gateway Rule
+
+Many relays and API gateways expose one of these shapes:
+
+- OpenAI-compatible
+- Anthropic-compatible
+- Gemini-compatible
+
+They should not be modeled as new protocol families just because the company name is different.
+
+Classification rule:
+
+1. Check the official gateway docs.
+2. Identify the primary protocol shape it actually supports for image input and structured outputs.
+3. Map it to an existing family first.
+4. Add a new top-level family only when protocol behavior truly cannot be expressed by preset flags.
 
 ## Presets Versus Protocol Families
 
@@ -82,6 +115,11 @@ These names should normally be implemented as **presets**, not as new top-level 
 
 For unfamiliar names such as `MiMo` or other local deployments, first classify the official interface. If the service exposes OpenAI-compatible or Anthropic-compatible endpoints, add a preset entry instead of a new adapter family.
 
+If a service exposes both OpenAI-compatible and Anthropic-compatible routes, the phase-1 default for this repository should still be:
+
+- prefer `openai_compatible` first
+- only add `anthropic_compatible` after a real capability gap is observed
+
 ## Official Protocol References
 
 Use official docs before implementation. Re-check them when behavior is unclear.
@@ -98,6 +136,9 @@ Use official docs before implementation. Re-check them when behavior is unclear.
   - [Structured outputs](https://docs.ollama.com/capabilities/structured-outputs)
 - DeepSeek:
   - [DeepSeek API docs](https://api-docs.deepseek.com/)
+- Anthropic:
+  - [Messages API](https://docs.anthropic.com/en/api/messages)
+  - [Vision](https://docs.anthropic.com/en/docs/build-with-claude/vision)
 
 When adding a new preset, document the official source that proves which protocol family it belongs to.
 
@@ -168,6 +209,8 @@ Suggested flags:
 | `supports_reasoning_effort` | Some vendors support it, others ignore it |
 | `supports_remote_image_url` | Local gateways often differ here |
 | `supports_data_url_images` | Critical for local-image captcha inputs |
+| `supports_inline_base64_images` | Useful when a service accepts images but rejects remote URLs |
+| `supports_json_schema` | Some protocol surfaces differ here even when they share vendor branding |
 
 Do not hardcode these choices in business flow.
 
@@ -186,6 +229,12 @@ So the recommended phase-1 baseline is:
 - family: `openai_compatible`
 - baseline transport: `/chat/completions`
 - optional future enhancement: official OpenAI `responses` mode as a preset-specific optimization
+
+This also means:
+
+- OpenAI official can be treated as one preset under `openai_compatible`
+- GLM can stay under the same family even if it later exposes another official protocol route
+- third-party relays that say "supports OpenAI API" should usually enter through this family first
 
 Do not force the whole repo onto OpenAI Responses mode before parity is proven for the captcha workflow.
 
@@ -222,3 +271,19 @@ Before declaring a preset supported, verify:
 5. existing Gemini/GLM success paths still behave correctly
 
 Because full test execution is not allowed here, use targeted static checks and focused smoke verification where possible.
+
+## Immediate Strategic Recommendation
+
+For this repository, the practical support order should be:
+
+1. keep `google_genai` for Gemini official and Gemini-style relays
+2. use `openai_compatible` as the main expansion path for:
+   - OpenAI official
+   - GLM OpenAI-compatible route
+   - DeepSeek if/when its multimodal path is good enough
+   - OpenRouter-like relays
+   - self-hosted gateways
+3. add `anthropic_compatible` only when:
+   - an actual target is important to users
+   - OpenAI-compatible coverage is not enough
+   - the capability gap is protocol-level, not just a preset quirk

@@ -20,6 +20,12 @@ This repository currently organizes provider support around two main families:
 | `google_genai` | Google Gemini-style API surface | Official Gemini API, Gemini-compatible relays such as AiHubMix |
 | `openai_compatible` | OpenAI-style `/v1/chat/completions` surface | OpenAI, DeepSeek, GLM, Ollama, many local gateways, some third-party platforms |
 
+If truly needed later, a separate family may be added:
+
+| Protocol family | Meaning | Current status |
+| --- | --- | --- |
+| `anthropic_compatible` | Anthropic Messages-style API surface | Not a priority yet; add it only when a real protocol-level gap appears |
+
 ### 2. preset
 
 A preset is a named target under one protocol family, with defaults and quirks for one service.
@@ -35,6 +41,28 @@ Examples:
 
 These are not new protocol families. They are targets inside an existing family.
 
+## How To Think About Third-Party Relays
+
+Most relays, aggregators, and self-hosted gateways do not invent a brand-new API shape.
+
+They usually expose one of:
+
+- OpenAI-compatible
+- Anthropic-compatible
+- Gemini-compatible
+
+So in this repository, the first question is not "which company is this?" It is:
+
+1. Which protocol shape does it expose?
+2. Does that route support image input?
+3. Is structured output stable enough?
+4. Does it support the image transport this captcha flow needs?
+
+If one platform exposes both OpenAI-compatible and Anthropic-compatible routes, the current recommendation for this repository is:
+
+1. try `openai_compatible` first
+2. move to `anthropic_compatible` only if a real protocol-level gap appears
+
 ## Why This Project No Longer Adds One Provider Per Model Name
 
 What matters for this repository is not only the model name.
@@ -47,6 +75,50 @@ The real integration requirements are:
 - the ability to turn model output into points, drag paths, and area-select targets
 
 So the main maintenance boundary is usually the API protocol, not the vendor label.
+
+Examples:
+
+- `GPT`, `DeepSeek`, `GLM`, and `Ollama` often fit under `openai_compatible`
+- `Gemini` and `AiHubMix` are closer to `google_genai`
+- some vendors may also expose Anthropic-style routes, but that still does not justify a new family unless the existing OpenAI-compatible route is insufficient
+
+## The Three-Layer Model
+
+Future provider work in this repository should be understood in three layers:
+
+### 1. protocol family
+
+This is the API shape, for example:
+
+- `google_genai`
+- `openai_compatible`
+- a future `anthropic_compatible`
+
+### 2. preset / profile
+
+This is a concrete target with defaults and quirks, for example:
+
+- `openai`
+- `glm`
+- `deepseek`
+- `ollama`
+- `aihubmix`
+- `custom_openai_compatible`
+
+### 3. task model
+
+This is the actual model name used for each captcha sub-task:
+
+- `CHALLENGE_CLASSIFIER_MODEL`
+- `IMAGE_CLASSIFIER_MODEL`
+- `SPATIAL_POINT_REASONER_MODEL`
+- `SPATIAL_PATH_REASONER_MODEL`
+
+This separation lets the repository:
+
+- map one vendor to multiple protocol routes when necessary
+- reuse one protocol family across many presets
+- tune per-task models without creating new provider branches
 
 ## Recommended Configuration Style
 
@@ -90,6 +162,8 @@ That means older setups do not break immediately, but the canonical fields are n
 | `minimax` | `openai_compatible` | `https://api.minimaxi.com/v1` | `MiniMax-M2.7` | Replace with a vision-capable official model |
 | `xiaomi_mimo` | `openai_compatible` | no default | no default | Fill the official endpoint and model from your MiMo console |
 | `custom_openai_compatible` | `openai_compatible` | no default | no default | Self-hosted or third-party OpenAI-compatible service |
+
+If a service officially supports both OpenAI-compatible and Anthropic-compatible access, do not rush to make it a new family. Model it as a preset/profile under an existing family first.
 
 ## How To Choose Based On Your Situation
 
@@ -225,6 +299,23 @@ This is the right path for:
 - self-hosted vLLM / TGI / LocalAI / LM Studio style services
 - other third-party `/v1/chat/completions` implementations
 
+### 10. I use a third-party platform that supports the Anthropic protocol
+
+This protocol branch has not yet made `anthropic_compatible` a completed runtime path.
+
+So if your platform supports both:
+
+- OpenAI-compatible
+- Anthropic-compatible
+
+start with the OpenAI-compatible route first, then evaluate:
+
+- whether image input works correctly
+- whether JSON / structured output is stable
+- whether point/drag captcha tasks remain reliable
+
+Only when the OpenAI-compatible route is truly insufficient, and the Anthropic route clearly solves that protocol-level gap, should this repository grow a dedicated `anthropic_compatible` family.
+
 ## What Secrets To Fill In GitHub Actions
 
 Required in all cases:
@@ -308,6 +399,18 @@ These official sources were referenced during this implementation and should be 
   - [DeepSeek API docs](https://api-docs.deepseek.com/)
 - MiniMax
   - [MiniMax OpenAI API compatibility](https://platform.minimaxi.com/document/Intelligent%20Assistant/OpenAI%20API%20Compatibility)
+- Anthropic
+  - [Messages API](https://docs.anthropic.com/en/api/messages)
+  - [Vision](https://docs.anthropic.com/en/docs/build-with-claude/vision)
+
+## Recommended Decision Order
+
+If you are extending the repository instead of just trying one provider, use this order:
+
+1. first ask whether the target fits `google_genai` or `openai_compatible`
+2. if it fits an existing family, add only a preset/profile instead of a new adapter family
+3. if one platform supports both OpenAI and Anthropic styles, do not build both at once; start with OpenAI-compatible
+4. only promote `anthropic_compatible` to implementation work when a real protocol-level gap has been identified
 
 ## If You Just Want The Fastest Working Route
 
