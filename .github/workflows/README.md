@@ -58,20 +58,20 @@
 | `GLM_BASE_URL` | 可选，默认 `https://open.bigmodel.cn/api/paas/v4` |
 | `GLM_MODEL` | 可选，推荐 `glm-4.6v` |
 
-如果你使用 DeepSeek V4：
+如果你想保留 DeepSeek V4 配置占位：
 
 | Secret | 说明 |
 | --- | --- |
-| `LLM_PROVIDER` | 建议设为 `deepseek` |
-| `DEEPSEEK_API_KEY` | DeepSeek API Key |
-| `DEEPSEEK_BASE_URL` | 可选，默认 `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | 未设置时默认 `deepseek-v4-pro`；如显式配置，也必须填 `deepseek-v4-pro` |
-| `DEEPSEEK_THINKING_ENABLED` | 可选，默认 `false` |
-| `DEEPSEEK_REASONING_EFFORT` | 可选，默认 `high` |
+| `LLM_PROVIDER` | 先不要切到 `deepseek` |
+| `DEEPSEEK_API_KEY` | 预留占位即可 |
+| `DEEPSEEK_BASE_URL` | 预留值可写 `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | 预留值可写 `deepseek-v4-pro` |
+| `DEEPSEEK_THINKING_ENABLED` | 预留占位 |
+| `DEEPSEEK_REASONING_EFFORT` | 预留占位 |
 
-`GLM` 和 `DeepSeek V4` 路线不需要额外配置 `GEMINI_API_KEY`。项目会在兼容层里自动桥接底层依赖仍然要求的字段。
+当前建议只使用 `GLM` 或 `Gemini / AiHubMix`。DeepSeek 这条线先保留配置占位，等官方多模态能力适合当前验证码链路后再启用。
 
-程序会优先读取这些模型覆盖项，如果未设置，则自动回落到 `GLM_MODEL`、`DEEPSEEK_MODEL` 或 `GEMINI_MODEL`：
+程序会优先读取这些模型覆盖项，如果未设置，则自动回落到当前启用 provider 的默认模型：
 
 - `CHALLENGE_CLASSIFIER_MODEL`
 - `IMAGE_CLASSIFIER_MODEL`
@@ -99,7 +99,7 @@
 
 - Gemini/AiHubMix 继续使用原有兼容补丁。
 - GLM 会自动转成智谱 OpenAI-compatible `chat/completions` 请求。
-- DeepSeek V4 会自动转成 DeepSeek OpenAI-compatible `chat/completions` 请求，当前分支使用 `deepseek-v4-pro`。
+- DeepSeek V4 分支代码保留了兼容接口草稿，但当前不作为可启用方案对外推荐，因为验证码流程依赖稳定多模态能力。
 
 这也是为什么 GLM 这里推荐 `glm-4.6v` 这类视觉模型，而不是纯文本的编码模型。
 如果你用 `glm-4.6v-flash` 遇到“该模型当前访问量过大，请您稍后重试”，直接改成 `GLM_MODEL=glm-4.6v` 通常更稳。

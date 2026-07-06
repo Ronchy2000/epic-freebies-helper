@@ -46,6 +46,7 @@ cd epic-freebies-helper
 主要入口是 [`docker/docker-compose.yaml`](../docker/docker-compose.yaml)。
 
 根据选择的 provider 修改环境变量。
+当前建议只使用 `GLM` 或 `Gemini / AiHubMix`。
 
 GLM 示例：
 
@@ -57,17 +58,8 @@ environment:
   - GLM_MODEL=glm-4.6v
 ```
 
-DeepSeek V4 示例：
-
-```yaml
-environment:
-  - LLM_PROVIDER=deepseek
-  - DEEPSEEK_API_KEY=your_deepseek_key
-  - DEEPSEEK_BASE_URL=https://api.deepseek.com
-  - DEEPSEEK_MODEL=deepseek-v4-pro
-  - DEEPSEEK_THINKING_ENABLED=false
-  - DEEPSEEK_REASONING_EFFORT=high
-```
+DeepSeek V4 相关变量当前只保留占位，不建议在本地或 Docker 正式启用。
+等 DeepSeek 官方多模态能力适合当前验证码流程后，再恢复这组示例。
 
 Gemini / AiHubMix 示例：
 

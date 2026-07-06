@@ -4,12 +4,12 @@
 
 ## 支持的 Provider
 
-当前 DeepSeek V4 分支支持以下 provider：
+当前分支建议使用以下 provider：
 
 | Provider | 状态 | 用途 |
 | --- | --- | --- |
 | `glm` | 当前分支可用 | 通过智谱 OpenAI 兼容接口处理验证码 |
-| `deepseek` | 当前分支可用 | 通过 DeepSeek OpenAI 兼容接口处理验证码 |
+| `deepseek` | 预留占位，暂不启用 | 等官方多模态能力适合当前验证码链路后再启用 |
 | `gemini` | 当前分支可用 | 通过 Gemini 或 AiHubMix 兼容接口处理验证码 |
 | `openai` | 需要包含 OpenAI provider 的代码版本 | 通过 OpenAI Chat Completions 处理验证码 |
 
@@ -43,39 +43,37 @@
 
 ## DeepSeek V4
 
+当前先不要把 DeepSeek 作为正式 provider 启用。
+这部分配置和代码保留在分支里，目的是等 DeepSeek 官方提供适合当前验证码流程的稳定多模态能力后再继续推进。
+
 ### Secrets
 
 | Secret | 说明 | 示例 |
 | --- | --- | --- |
-| `LLM_PROVIDER` | 固定为 `deepseek` | `deepseek` |
-| `DEEPSEEK_API_KEY` | DeepSeek API Key | - |
-| `DEEPSEEK_BASE_URL` | DeepSeek OpenAI 兼容接口地址 | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | DeepSeek V4 模型 | `deepseek-v4-pro` |
-| `DEEPSEEK_THINKING_ENABLED` | 是否启用思考模式 | `false` |
-| `DEEPSEEK_REASONING_EFFORT` | 启用思考模式时的推理强度 | `high` |
+| `LLM_PROVIDER` | 预留值 | `deepseek` |
+| `DEEPSEEK_API_KEY` | 预留占位 | - |
+| `DEEPSEEK_BASE_URL` | 预留接口地址 | `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | 预留模型值 | `deepseek-v4-pro` |
+| `DEEPSEEK_THINKING_ENABLED` | 预留占位 | `false` |
+| `DEEPSEEK_REASONING_EFFORT` | 预留占位 | `high` |
 
-### 固定测试配置
+### 当前状态
 
-| Secret | 测试值 |
-| --- | --- |
-| `LLM_PROVIDER` | `deepseek` |
-| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | `deepseek-v4-pro` |
-| `DEEPSEEK_THINKING_ENABLED` | `false` |
-| `DEEPSEEK_REASONING_EFFORT` | `high` |
+- 当前不建议实际启用 `LLM_PROVIDER=deepseek`。
+- 这组变量仅保留为后续恢复实验时的占位配置。
+- 如果未来 DeepSeek 官方多模态能力成熟，再回到本分支继续启用和验证。
 
 ### 模型要求
 
-DeepSeek provider 使用 OpenAI 兼容 `chat/completions` 接口。
+当前项目的验证码流程依赖图片输入和稳定的多模态响应。
 
-验证码流程包含图片输入。使用第三方 DeepSeek 兼容网关时，需要确认网关支持 `image_url` 输入格式。
+DeepSeek 这条线虽然保留了 OpenAI-compatible 适配草稿，但在官方多模态能力适合这条链路之前，不应视为可运行 provider。
 
 ### 注意事项
 
-- 本分支的 `DEEPSEEK_MODEL` 统一使用 `deepseek-v4-pro`。
-- 如果 Secrets 中已有 `deepseek-v4-flash`，需要改为 `deepseek-v4-pro` 后再测试。
-- 如果启用 `DEEPSEEK_THINKING_ENABLED=true`，`DEEPSEEK_REASONING_EFFORT` 当前只建议使用 `high` 或 `max`。
-- 使用 DeepSeek 时不需要额外配置 `GEMINI_API_KEY`。
+- 当前不要把 DeepSeek 配置接入正式运行。
+- 如果只是保留配置占位，建议继续使用 `deepseek-v4-pro` 作为文档中的占位模型值。
+- 等 DeepSeek 官方多模态能力适合当前流程后，再重新评估 `DEEPSEEK_THINKING_ENABLED` 和 `DEEPSEEK_REASONING_EFFORT` 的实际建议值。
 
 ## OpenAI / GPT
 

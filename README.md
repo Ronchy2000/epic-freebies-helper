@@ -12,20 +12,12 @@
 
 ## 分支说明
 
-当前分支为 DeepSeek V4 测试分支。
+当前分支保留了 DeepSeek V4 的接入草稿，但目前不建议启用。
 
-本分支特别支持通过 `LLM_PROVIDER=deepseek` 调用 DeepSeek V4 模型处理验证码。
+原因是当前领取链路的验证码流程依赖稳定的多模态图片输入，而 DeepSeek 官方当前还不适合作为这条链路的正式 provider。
 
-测试时使用以下配置值：
-
-| 配置项 | 建议值 |
-| --- | --- |
-| `LLM_PROVIDER` | `deepseek` |
-| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | `deepseek-v4-pro` |
-
-本分支要求将 `DEEPSEEK_MODEL` 的值设置为 `deepseek-v4-pro`。如果已经配置过
-`deepseek-v4-flash`，请改为 `deepseek-v4-pro` 后再测试。
+在 DeepSeek 官方明确提供可稳定用于该流程的多模态能力之前，请不要把本分支当作可直接运行的 DeepSeek 方案。
+后续如果 DeepSeek 官方补齐这部分能力，再重新启用本分支。
 
 ## 项目说明
 
@@ -89,7 +81,9 @@ Fork 之后先打开自己仓库的 `Actions` 页面，进入 `Epic Awesome Game
 | `EPIC_PASSWORD` | Epic 登录密码 | `your_password` |
 | `LLM_PROVIDER` | 模型 provider | `glm` |
 
-当前 DeepSeek V4 分支支持的 `LLM_PROVIDER` 值为 `glm`、`deepseek`、`gemini`。
+当前建议使用的 `LLM_PROVIDER` 值为 `glm`、`gemini`。
+
+`deepseek` 相关配置暂时只作为分支占位保留，当前不建议启用。
 
 OpenAI / GPT 配置说明保留在 [Provider 配置说明](docs/providers.md) 中。只有在代码已包含 OpenAI provider 时，才应使用
 `LLM_PROVIDER=openai`。
@@ -103,11 +97,11 @@ OpenAI / GPT 配置说明保留在 [Provider 配置说明](docs/providers.md) �
 | `glm` | `GLM_API_KEY` | - | 智谱 API Key |
 | `glm` | `GLM_BASE_URL` | `https://open.bigmodel.cn/api/paas/v4` | 智谱 OpenAI 兼容接口地址 |
 | `glm` | `GLM_MODEL` | `glm-4.6v` | 默认推荐模型 |
-| `deepseek` | `DEEPSEEK_API_KEY` | - | DeepSeek API Key |
-| `deepseek` | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | DeepSeek OpenAI 兼容接口地址 |
-| `deepseek` | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | DeepSeek V4 默认模型 |
-| `deepseek` | `DEEPSEEK_THINKING_ENABLED` | `false` | 是否启用 DeepSeek 思考模式 |
-| `deepseek` | `DEEPSEEK_REASONING_EFFORT` | `high` | 启用思考模式时的推理强度 |
+| `deepseek` | `DEEPSEEK_API_KEY` | - | 预留占位，当前分支暂不启用 |
+| `deepseek` | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | 预留占位，等待官方多模态能力成熟后再启用 |
+| `deepseek` | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 预留占位，当前不要作为正式运行配置 |
+| `deepseek` | `DEEPSEEK_THINKING_ENABLED` | `false` | 预留占位 |
+| `deepseek` | `DEEPSEEK_REASONING_EFFORT` | `high` | 预留占位 |
 | `gemini` | `GEMINI_API_KEY` | - | Gemini 或 AiHubMix Key |
 | `gemini` | `GEMINI_BASE_URL` | `https://aihubmix.com` | Gemini 兼容接口地址 |
 | `gemini` | `GEMINI_MODEL` | `gemini-2.5-pro` | 推荐起步模型 |
@@ -115,9 +109,9 @@ OpenAI / GPT 配置说明保留在 [Provider 配置说明](docs/providers.md) �
 说明：
 
 - `GEMINI_BASE_URL` 不要写成 `GEMINI_BASE_MODEL`。
-- 使用 `glm` 或 `deepseek` 时不需要额外配置 `GEMINI_API_KEY`。
+- 使用 `glm` 时不需要额外配置 `GEMINI_API_KEY`。
 - `glm-4.6v-flash` 在高峰期可能出现模型繁忙错误，默认建议使用 `glm-4.6v`。
-- 本分支的 `DEEPSEEK_MODEL` 统一使用 `deepseek-v4-pro`。
+- `deepseek` 配置当前只保留作后续实验占位，等 DeepSeek 官方具备稳定多模态支持后再启用。
 
 #### 高级模型覆盖项
 

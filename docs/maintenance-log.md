@@ -463,3 +463,24 @@
   - 保留 DeepSeek OpenAI-compatible client，同时并入主线对 area-select 坐标中心点归一化和 Gemini 默认端点处理的修复。
   - 补上 `LLM_PROVIDER=deepseek` 时缺失的 `DEEPSEEK_API_KEY` 配置校验，避免误配后静默退回其他 provider。
   - 更新 `.env.example`，明确 DeepSeek 变量、Gemini 官方端点说明和本地 `.env` 密码引号注意事项，降低兼容配置误差。
+
+### 2026-07-06 将 DeepSeek 分支文档改为暂不启用状态
+
+- 现象：
+  - 当前分支文档仍把 DeepSeek V4 写成可直接测试、可直接配置的 provider。
+  - 这会让使用者误以为当前验证码链路已经可以稳定依赖 DeepSeek 的多模态能力。
+- 根因判断：
+  - 当前项目的验证码流程依赖稳定的图片输入与多模态响应，而 DeepSeek 这条线目前更适合作为保留中的接入草稿，而不是正式启用方案。
+- 改动文件：
+  - `README.md`
+  - `README.en.md`
+  - `.github/workflows/README.md`
+  - `.github/workflows/README.en.md`
+  - `docs/providers.md`
+  - `docs/local-debug.md`
+  - `.env.example`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 将 DeepSeek 相关文档表述统一改为“保留占位，暂不启用”。
+  - 明确说明该分支需要等 DeepSeek 官方多模态能力适合当前验证码流程后再重新启用。
+  - 保留现有配置项和代码草稿，方便后续继续接到 OpenAI 或未来的 DeepSeek 多模态能力验证。

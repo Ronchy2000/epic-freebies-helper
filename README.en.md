@@ -12,20 +12,12 @@
 
 ## Branch Notice
 
-This is the DeepSeek V4 testing branch.
+This branch keeps the DeepSeek V4 integration draft, but it should not be enabled yet.
 
-This branch specifically supports using `LLM_PROVIDER=deepseek` to call DeepSeek V4 models for captcha handling.
+The captcha flow depends on stable multimodal image input, and DeepSeek is not yet a reliable official provider for that path in this project.
 
-Use the following test values:
-
-| Setting | Recommended value |
-| --- | --- |
-| `LLM_PROVIDER` | `deepseek` |
-| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | `deepseek-v4-pro` |
-
-This branch requires `DEEPSEEK_MODEL=deepseek-v4-pro`. If you previously configured
-`deepseek-v4-flash`, change it to `deepseek-v4-pro` before testing.
+Until DeepSeek officially offers multimodal support that is stable enough for this flow, do not treat this branch as a ready-to-run DeepSeek solution.
+We will enable it again after that capability is available.
 
 ## Project Description
 
@@ -90,7 +82,9 @@ Open `Settings` -> `Secrets and variables` -> `Actions`, then add the following 
 | `EPIC_PASSWORD` | Epic login password | `your_password` |
 | `LLM_PROVIDER` | Model provider | `glm` |
 
-The current DeepSeek V4 branch supports `glm`, `deepseek`, and `gemini` for `LLM_PROVIDER`.
+The currently recommended `LLM_PROVIDER` values are `glm` and `gemini`.
+
+The `deepseek` settings are kept only as placeholders on this branch and should not be enabled yet.
 
 OpenAI / GPT configuration is kept in [Provider Configuration](docs/providers.md). Use
 `LLM_PROVIDER=openai` only when the code includes the OpenAI provider.
@@ -104,11 +98,11 @@ Select one group according to `LLM_PROVIDER`.
 | `glm` | `GLM_API_KEY` | - | Zhipu API key |
 | `glm` | `GLM_BASE_URL` | `https://open.bigmodel.cn/api/paas/v4` | Zhipu OpenAI-compatible endpoint |
 | `glm` | `GLM_MODEL` | `glm-4.6v` | Recommended default model |
-| `deepseek` | `DEEPSEEK_API_KEY` | - | DeepSeek API key |
-| `deepseek` | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | DeepSeek OpenAI-compatible endpoint |
-| `deepseek` | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | Default DeepSeek V4 model |
-| `deepseek` | `DEEPSEEK_THINKING_ENABLED` | `false` | Whether to enable DeepSeek thinking mode |
-| `deepseek` | `DEEPSEEK_REASONING_EFFORT` | `high` | Reasoning effort when thinking mode is enabled |
+| `deepseek` | `DEEPSEEK_API_KEY` | - | Reserved placeholder, not enabled on this branch yet |
+| `deepseek` | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Reserved placeholder until official multimodal support is usable |
+| `deepseek` | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | Reserved placeholder, not for production use yet |
+| `deepseek` | `DEEPSEEK_THINKING_ENABLED` | `false` | Reserved placeholder |
+| `deepseek` | `DEEPSEEK_REASONING_EFFORT` | `high` | Reserved placeholder |
 | `gemini` | `GEMINI_API_KEY` | - | Gemini or AiHubMix key |
 | `gemini` | `GEMINI_BASE_URL` | `https://aihubmix.com` | Gemini-compatible endpoint |
 | `gemini` | `GEMINI_MODEL` | `gemini-2.5-pro` | Recommended starting model |
@@ -116,9 +110,9 @@ Select one group according to `LLM_PROVIDER`.
 Notes:
 
 - Use `GEMINI_BASE_URL`, not `GEMINI_BASE_MODEL`.
-- `glm` and `deepseek` do not require a separate `GEMINI_API_KEY`.
+- `glm` does not require a separate `GEMINI_API_KEY`.
 - `glm-4.6v-flash` may return model-busy errors during peak traffic. Use `glm-4.6v` as the default.
-- This branch uses `deepseek-v4-pro` as the `DEEPSEEK_MODEL` value.
+- The `deepseek` settings are kept only for future experiments and should stay disabled until DeepSeek has stable official multimodal support.
 
 #### Advanced Model Overrides
 

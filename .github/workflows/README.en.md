@@ -58,20 +58,20 @@ If you use GLM:
 | `GLM_BASE_URL` | Optional, defaults to `https://open.bigmodel.cn/api/paas/v4` |
 | `GLM_MODEL` | Optional, recommended: `glm-4.6v` |
 
-If you use DeepSeek V4:
+If you want to keep placeholder settings for DeepSeek V4:
 
 | Secret | Description |
 | --- | --- |
-| `LLM_PROVIDER` | Recommended value: `deepseek` |
-| `DEEPSEEK_API_KEY` | DeepSeek API key |
-| `DEEPSEEK_BASE_URL` | Optional, defaults to `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | Defaults to `deepseek-v4-pro` when unset; if set explicitly, it must be `deepseek-v4-pro` |
-| `DEEPSEEK_THINKING_ENABLED` | Optional, defaults to `false` |
-| `DEEPSEEK_REASONING_EFFORT` | Optional, defaults to `high` |
+| `LLM_PROVIDER` | Do not switch to `deepseek` yet |
+| `DEEPSEEK_API_KEY` | Reserved placeholder only |
+| `DEEPSEEK_BASE_URL` | Placeholder value can stay `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | Placeholder value can stay `deepseek-v4-pro` |
+| `DEEPSEEK_THINKING_ENABLED` | Reserved placeholder |
+| `DEEPSEEK_REASONING_EFFORT` | Reserved placeholder |
 
-The `GLM` and `DeepSeek V4` paths do not require a separate `GEMINI_API_KEY`. The project now bridges that lower-level compatibility requirement automatically.
+For now, use only `GLM` or `Gemini / AiHubMix`. The DeepSeek path is being kept as a placeholder until official multimodal support is suitable for this captcha flow.
 
-The program also checks these per-task overrides first. If they are not set, they fall back automatically to `GLM_MODEL`, `DEEPSEEK_MODEL`, or `GEMINI_MODEL`:
+The program also checks these per-task overrides first. If they are not set, they fall back automatically to the active provider's default model:
 
 - `CHALLENGE_CLASSIFIER_MODEL`
 - `IMAGE_CLASSIFIER_MODEL`
@@ -99,7 +99,7 @@ This repository now includes an adapter layer:
 
 - Gemini / AiHubMix continues to use the existing compatibility patch.
 - GLM is translated automatically into Zhipu's OpenAI-compatible `chat/completions` requests.
-- DeepSeek V4 is translated automatically into DeepSeek's OpenAI-compatible `chat/completions` requests. This branch uses `deepseek-v4-pro`.
+- The DeepSeek V4 branch code keeps an adapter draft, but it is not recommended as an enabled option yet because this captcha flow depends on stable multimodal support.
 
 That is why GLM here should use a vision-capable model such as `glm-4.6v`, not a plain text coding model.
 If `glm-4.6v-flash` starts returning overload messages such as "the current model is too busy", switching to `GLM_MODEL=glm-4.6v` is usually more stable.
