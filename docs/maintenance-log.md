@@ -1302,4 +1302,21 @@
   - GLM 超时异常包含时限和异常类型，上游网络尝试从三次限制为两次；保留 GLM 4.6 thinking，因为失败截图重放显示全局关闭会降低坐标准确率。
   - 计数题提示改为方向无关；通过重复数量徽标识别参考条方向并约束另一侧网格。所有点选答案在缓存和点击前验证挑战边界，计数题额外验证可点击网格，越界答案直接拒绝。
   - 无效的标量拖拽坐标提前报告为结构错误；新增浏览器请求头、超时信息、重试预算、左右参考条和越界坐标回归覆盖。
+
+### 2026-08-15 DeepSeek V4 API 多模态能力验证
+
+- 现象：
+  - `add-deepseekv4-provider` 分支长期未与 master 同步，且 DeepSeek V4 的图片输入能力未经实际 API 验证。
+  - 需要确认 DeepSeek V4 是否可以用于 hCaptcha 验证码识别流程。
+- 根因判断：
+  - DeepSeek V4 pro/flash 的 API 文档未列出 vision/multimodal 能力，需通过直接 API 调用验证。
+- 改动文件：
+  - `scripts/test_deepseek_api.py`（新增测试脚本）
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 将 master 合并到 `add-deepseekv4-provider` 分支，解决 7 个文件的合并冲突。
+  - 编写直接 API 调用脚本，测试 deepseek-v4-pro 和 deepseek-v4-flash 的文本对话、thinking 模式、JSON 输出和多模态图片输入。
+  - **确认 DeepSeek V4 (pro/flash) 是纯文本模型，不支持图片输入**：API 对 `image_url` 类型返回 `unknown variant 'image_url', expected 'text'`，且无 `/vision` 等独立视觉端点。
+  - 文本对话和 thinking 模式正常；deepseek-v4-flash 的 JSON 结构化输出正常，deepseek-v4-pro 在 reasoning 消耗完 max_tokens 后可能返回空 content。
+  - **结论：DeepSeek V4 无法用于当前 hCaptcha 验证码识别流程，验证码识别仍需 GLM（glm-4.6v）或 Gemini 等多模态模型。**
   - 本地定向测试 `35 passed`，完整测试 `60 passed`，Ruff、变更文件 Black 和 `git diff --check` 均通过。
