@@ -8,6 +8,7 @@ from hcaptcha_challenger.agent import AgentConfig
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import SettingsConfigDict
 
+from extensions.hcaptcha_adapter import apply_hcaptcha_drag_patch
 from extensions.llm_adapter import apply_llm_patch
 
 # --- 核心路径定义 ---
@@ -58,7 +59,8 @@ class EpicSettings(AgentConfig):
         default="https://open.bigmodel.cn/api/paas/v4", description="GLM OpenAI-compatible base URL"
     )
 
-    GLM_MODEL: str = Field(default="glm-4.5v", description="GLM vision-capable default model")
+    GLM_MODEL: str = Field(default="glm-4.6v", description="GLM vision-capable default model")
+    GLM_REQUEST_TIMEOUT_SECONDS: float = Field(default=50.0, gt=5.0, le=120.0)
 
     DEEPSEEK_API_KEY: SecretStr | None = Field(default=None, description="DeepSeek API key")
 
@@ -79,10 +81,20 @@ class EpicSettings(AgentConfig):
     BROWSER_BACKEND: str = Field(
         default="auto", description="Supported values: auto, camoufox, playwright"
     )
+    BROWSER_PROXY: SecretStr | None = Field(
+        default=None, description="Optional HTTP(S) or SOCKS proxy URL shared by browser backends."
+    )
 
-    EPIC_EMAIL: str = Field(default_factory=lambda: _env("EPIC_EMAIL"))
-    EPIC_PASSWORD: SecretStr = Field(default_factory=lambda: _env("EPIC_PASSWORD"))
+    EPIC_ACCOUNTS: SecretStr | None = Field(
+        default=None, description="Optional multiline email:password account list"
+    )
+    EPIC_EMAIL: str = Field(default_factory=lambda: _env("EPIC_EMAIL", ""))
+    EPIC_PASSWORD: SecretStr = Field(default_factory=lambda: _env("EPIC_PASSWORD", ""))
     DISABLE_BEZIER_TRAJECTORY: bool = Field(default=False)
+    RETRY_ON_FAILURE: bool = Field(
+        default=False,
+        description="Disable hcaptcha-challenger recursive retries; callers own retry limits.",
+    )
     WAIT_FOR_CHALLENGE_VIEW_TO_RENDER_MS: int = Field(default=3000)
 
     CHALLENGE_CLASSIFIER_MODEL: str = Field(default="")
@@ -96,6 +108,7 @@ class EpicSettings(AgentConfig):
 
     ENABLE_APSCHEDULER: bool = Field(default=True)
     TASK_TIMEOUT_SECONDS: int = Field(default=900)
+    AUTH_MAX_ATTEMPTS: int = Field(default=5, ge=3, le=8)
     REDIS_URL: str = Field(default="redis://redis:6379/0")
     CELERY_WORKER_CONCURRENCY: int = Field(default=1)
     CELERY_TASK_TIME_LIMIT: int = Field(default=1200)
@@ -231,3 +244,4 @@ class EpicSettings(AgentConfig):
 settings = EpicSettings()
 settings.ignore_request_questions = ["Please drag the crossing to complete the lines"]
 apply_llm_patch(settings)
+apply_hcaptcha_drag_patch()

@@ -13,8 +13,12 @@ env:
 jobs:
   epic-gamer:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    
+    # A single account run can take 15-20 minutes. Multi-account runs are
+    # sequential, so scale the timeout with the number of accounts by setting
+    # a repository variable JOB_TIMEOUT_MINUTES (Settings -> Secrets and
+    # variables -> Actions -> Variables). Defaults to 60 minutes.
+    timeout-minutes: ${{ fromJSON(vars.JOB_TIMEOUT_MINUTES || '60') }}
+
     # 默认不在主仓库自身执行定时任务；Fork 后的仓库会正常运行。
     if: github.repository != 'Ronchy2000/epic-freebies-helper'
 
@@ -38,6 +42,11 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Validate hCaptcha protocol contract
+        env:
+          PYTHONPATH: app
+        run: uv run python scripts/check_hcaptcha_contract.py
+
       # 增加 GITHUB_TOKEN 以降低 Camoufox 下载时的 403 频率限制。
       # 即使这里失败，运行时也可以回退到 Playwright Firefox。
       - name: Install Camoufox
@@ -53,23 +62,29 @@ jobs:
         env:
           EPIC_EMAIL: ${{ secrets.EPIC_EMAIL }}
           EPIC_PASSWORD: ${{ secrets.EPIC_PASSWORD }}
-          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          EPIC_ACCOUNTS: ${{ secrets.EPIC_ACCOUNTS }}
+          EPIC_TOTP_SECRET: ${{ secrets.EPIC_TOTP_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || secrets.LLM_PROVIDER }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_BASE_URL: ${{ secrets.GEMINI_BASE_URL }}
-          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL }}
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
-          GLM_MODEL: ${{ secrets.GLM_MODEL }}
+GLM_MODEL: ${{ vars.GLM_MODEL || secrets.GLM_MODEL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
-          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || secrets.DEEPSEEK_MODEL }}
           DEEPSEEK_THINKING_ENABLED: ${{ secrets.DEEPSEEK_THINKING_ENABLED }}
           DEEPSEEK_REASONING_EFFORT: ${{ secrets.DEEPSEEK_REASONING_EFFORT }}
-          CHALLENGE_CLASSIFIER_MODEL: ${{ secrets.CHALLENGE_CLASSIFIER_MODEL }}
-          IMAGE_CLASSIFIER_MODEL: ${{ secrets.IMAGE_CLASSIFIER_MODEL }}
-          SPATIAL_POINT_REASONER_MODEL: ${{ secrets.SPATIAL_POINT_REASONER_MODEL }}
-          SPATIAL_PATH_REASONER_MODEL: ${{ secrets.SPATIAL_PATH_REASONER_MODEL }}
+          CHALLENGE_CLASSIFIER_MODEL: ${{ vars.CHALLENGE_CLASSIFIER_MODEL || secrets.CHALLENGE_CLASSIFIER_MODEL }}
+          IMAGE_CLASSIFIER_MODEL: ${{ vars.IMAGE_CLASSIFIER_MODEL || secrets.IMAGE_CLASSIFIER_MODEL }}
+          SPATIAL_POINT_REASONER_MODEL: ${{ vars.SPATIAL_POINT_REASONER_MODEL || secrets.SPATIAL_POINT_REASONER_MODEL }}
+          SPATIAL_PATH_REASONER_MODEL: ${{ vars.SPATIAL_PATH_REASONER_MODEL || secrets.SPATIAL_PATH_REASONER_MODEL }}
           BROWSER_BACKEND: auto
+          BROWSER_PROXY: ${{ secrets.BROWSER_PROXY }}
+          HEADLESS: virtual
           DISABLE_BEZIER_TRAJECTORY: false
           # 在 Actions 中我们依靠 GitHub 的 cron 触发，所以关闭内部调度器
           ENABLE_APSCHEDULER: false
@@ -83,22 +98,64 @@ jobs:
       - name: Write success summary
         if: success()
         run: |
-          {
-            echo "## Run completed"
-            echo
-            echo "The workflow completed successfully."
-            echo
-            echo "- Share successful runs here: [Share your successful runs here / 成功领取的来这里留言！ #3](https://github.com/Ronchy2000/epic-freebies-helper/discussions/3)"
-            echo "- If the game was already in your library, Epic may not send a separate confirmation email. Review the logs and artifacts when verification is needed."
-            echo "- If you later report an issue from a private fork, upload the artifact zip files because maintainers cannot access private Actions pages."
-          } >> "$GITHUB_STEP_SUMMARY"
+          if grep -Rqs -E \
+            'unable to download any more free games|wait 24 hours before trying again|24-hour free-game limit detected' \
+            app/volumes/logs/ app/volumes/runtime/ 2>/dev/null; then
+            {
+              echo "## Run stopped: Epic 24-hour limit"
+              echo
+              echo "Action 已正常结束，但本次领取未成功：Epic 已限制该账号继续领取免费游戏。"
+              echo
+              echo "No successful claim was confirmed for the affected account. Wait at least 24 hours before running the workflow again."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Run completed"
+              echo
+              echo "The workflow completed successfully."
+              echo
+              echo "- Share successful runs here: [Share your successful runs here / 成功领取的来这里留言！ #3](https://github.com/Ronchy2000/epic-freebies-helper/discussions/3)"
+              echo "- If the game was already in your library, Epic may not send a separate confirmation email. Review the logs and artifacts when verification is needed."
+              echo "- If you later report an issue from a private fork, upload the artifact zip files because maintainers cannot access private Actions pages."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Write failure summary
+        if: failure()
+        run: |
+          if grep -Rqs -E \
+            'unable to download any more free games|wait 24 hours before trying again|free-game redemption rate limit detected' \
+            app/volumes/logs/ app/volumes/runtime/ 2>/dev/null; then
+            {
+              echo "## Claim not completed: Epic 24-hour limit"
+              echo
+              echo "本次领取未成功：Epic 已限制该账号继续领取免费游戏。"
+              echo
+              echo "Epic blocked additional free-game redemptions for the affected account. This run did not confirm a successful claim for that account."
+              echo
+              echo "Wait at least 24 hours before running the workflow again. Repeated retries during this period will not complete the claim."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Claim not completed"
+              echo
+              echo "本次领取未完成，不能视为领取成功。"
+              echo
+              echo "The workflow failed before all available games were confirmed in the library. Do not treat this run as a successful claim."
+              echo
+              echo "Review the failed step and uploaded runtime/log artifacts for the specific cause."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload runtime artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: epic-runtime-${{ github.run_id }}
-          path: app/volumes/runtime/
+          path: |
+            app/volumes/runtime/
+            app/volumes/hcaptcha/.challenge/
+          include-hidden-files: true
           retention-days: 7
 
       - name: Upload log artifacts

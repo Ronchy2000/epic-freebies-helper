@@ -31,14 +31,35 @@
 
 如果你想改成自己的时间，直接编辑 [`.github/workflows/epic-gamer.yml`](epic-gamer.yml) 里的 `schedule` 即可。最方便的方式是在 GitHub 网页里打开这个文件，点右上角铅笔按钮，修改 `cron` 后提交。
 
-## Secrets 配置
+## Secrets 和 Variables 配置
+
+账号、密码和 API Key 必须放在 `Secrets`。`LLM_PROVIDER` 和所有 `*_MODEL` 模型名建议放在 `Variables`，工作流会优先读取 Variables，并兼容已有的同名 Secrets。启动日志会打印包括 `SPATIAL_PATH_REASONER_MODEL` 在内的实际模型路由；仍保存在 Secrets 中的值会被 GitHub 自动遮罩为 `***`。
 
 必须配置：
 
 | Secret | 说明 |
 | --- | --- |
-| `EPIC_EMAIL` | Epic 邮箱，需关闭 2FA |
-| `EPIC_PASSWORD` | Epic 密码，需关闭 2FA |
+| `EPIC_EMAIL` | Epic 邮箱，需关闭邮箱 / 短信 2FA |
+| `EPIC_PASSWORD` | Epic 密码，需关闭邮箱 / 短信 2FA |
+
+如果账号启用了验证器 App 2FA，可额外配置：
+
+| Secret | 说明 |
+| --- | --- |
+| `EPIC_TOTP_SECRET` | 验证器二维码对应的 Base32 密钥；不要填写当前显示的 6 位动态验证码 |
+
+未配置时保持现有登录行为。邮箱验证码、短信验证码和 Passkey 暂不支持。
+
+如需接收 Telegram 领取结果通知，可额外配置：
+
+| Secret | 说明 |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token |
+| `TELEGRAM_CHAT_ID` | Telegram 聊天 ID |
+
+两个 Secret 需要同时存在才会发送通知。发送失败不会影响领取任务；未配置时保持现有行为。
+
+如果共享云 IP 导致 hCaptcha 风控加重，可选添加 `BROWSER_PROXY` Secret，格式为 `http://用户名:密码@主机:端口`、`https://...`、`socks4://...` 或 `socks5://...`。未配置时网络路径保持不变。
 
 如果你使用 Gemini/AiHubMix：
 
@@ -78,7 +99,7 @@
 - `SPATIAL_POINT_REASONER_MODEL`
 - `SPATIAL_PATH_REASONER_MODEL`
 
-这些变量也可以直接作为 GitHub Secrets 配置，工作流已经会自动透传。
+这些非敏感配置建议作为 GitHub Variables 配置。为兼容已有 Fork，工作流仍会回退读取同名 Secrets。
 
 ## 本地单次调试
 
@@ -154,7 +175,13 @@ GitHub 的共享出口 IP 可能被 Epic 风控。通常换个时间重新执行
 
 ![GLM 429 rate limit log](../../docs/images/faq/glm-429-rate-limit.png)
 
-### 4. 为什么现在默认改成每周一次
+### 4. hCaptcha 日志反复出现 GLM 超时或 HSW 解码失败
+
+先同步主仓库的最新 `master`。当前版本会把 GLM 单次请求超时明确记录为 `GLM request timed out after ...`，并限制单轮网络尝试次数，避免模型重试耗尽整个验证码时限；浏览器也会自动对 `hsw.js` 使用无压缩传输，规避 `NS_ERROR_INVALID_CONTENT_ENCODING`。
+
+这些处理不会绕过 Epic/hCaptcha 的风控。若同步后仍持续收到更难的挑战，优先检查 GLM API 是否稳定，并考虑配置 `BROWSER_PROXY`；GitHub Hosted Runner 的共享出口 IP 仍可能提高挑战难度。不要通过关闭 `glm-4.6v` thinking 来单纯换取速度，本项目的失败样本重放中，这会显著降低点选准确率。
+
+### 5. 为什么现在默认改成每周一次
 
 Epic 周免通常在每周四刷新。对大多数普通用户来说，把默认 schedule 放在周免刷新之后、每周跑一次，更省配额，也更符合实际使用习惯。
 

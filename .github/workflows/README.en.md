@@ -31,14 +31,35 @@ The workflow is triggered by GitHub `schedule` and `workflow_dispatch`. APSchedu
 
 If you want a different time, edit the `schedule` section inside [`.github/workflows/epic-gamer.yml`](epic-gamer.yml). The easiest way is to open that file on GitHub, click the pencil icon, update the cron line, and commit the change.
 
-## Required Secrets
+## Secrets and Variables
+
+Keep account credentials and API keys in `Secrets`. Store `LLM_PROVIDER` and all `*_MODEL` names in `Variables`; the workflow reads Variables first and retains fallback support for existing Secrets. Startup logs print the effective model routing, including `SPATIAL_PATH_REASONER_MODEL`. GitHub masks values that still exist as Secrets.
 
 Required in all cases:
 
 | Secret | Description |
 | --- | --- |
-| `EPIC_EMAIL` | Epic account email, with 2FA disabled |
-| `EPIC_PASSWORD` | Epic account password, with 2FA disabled |
+| `EPIC_EMAIL` | Epic account email; email/SMS 2FA must be disabled |
+| `EPIC_PASSWORD` | Epic account password; email/SMS 2FA must be disabled |
+
+If the account uses authenticator-app 2FA, optionally configure:
+
+| Secret | Description |
+| --- | --- |
+| `EPIC_TOTP_SECRET` | The Base32 secret encoded in the authenticator QR code; do not enter the current six-digit code |
+
+When this Secret is absent, the existing login behavior remains unchanged. Email codes, SMS codes, and Passkeys are not supported.
+
+To receive Telegram claim summaries, optionally configure:
+
+| Secret | Description |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token |
+| `TELEGRAM_CHAT_ID` | Telegram chat ID |
+
+Both Secrets must be present before a notification is sent. Delivery failures do not affect the claim task; when they are absent, the existing behavior remains unchanged.
+
+If shared cloud IP reputation causes harder hCaptcha challenges, you may optionally add a `BROWSER_PROXY` Secret in the form `http://username:password@host:port`, `https://...`, `socks4://...`, or `socks5://...`. Browser networking is unchanged when it is absent.
 
 If you use Gemini / AiHubMix:
 
@@ -78,7 +99,7 @@ The program also checks these per-task overrides first. If they are not set, the
 - `SPATIAL_POINT_REASONER_MODEL`
 - `SPATIAL_PATH_REASONER_MODEL`
 
-These values can also be configured directly as GitHub Secrets. The workflow already passes them through.
+Store these non-sensitive values as GitHub Variables. Existing forks can continue using same-named Secrets through the workflow fallback.
 
 ## Local One-Shot Debugging
 
@@ -162,7 +183,13 @@ Example log for a 429 rate-limit case:
 
 ![GLM 429 rate limit log](../../docs/images/faq/glm-429-rate-limit.png)
 
-### 4. Why is the default schedule weekly now?
+### 4. hCaptcha repeatedly logs GLM timeouts or HSW decoding failures
+
+Sync the latest `master` from the upstream repository first. The current version reports a single GLM timeout as `GLM request timed out after ...` and limits network attempts so retries cannot consume the entire challenge budget. It also requests `hsw.js` without compression to avoid `NS_ERROR_INVALID_CONTENT_ENCODING` in Camoufox/Firefox.
+
+These safeguards do not bypass Epic or hCaptcha risk controls. If difficult challenges continue after syncing, verify GLM API stability and consider configuring `BROWSER_PROXY`; GitHub-hosted runners still use shared outbound IPs that may increase challenge difficulty. Do not disable `glm-4.6v` thinking just to reduce latency: replaying this failure sample showed materially worse point-selection accuracy with thinking disabled.
+
+### 5. Why is the default schedule weekly now?
 
 Epic weekly freebies usually refresh on Thursday. For most regular users, running once after the refresh is a better default: it uses fewer GitHub Actions minutes and matches the real claim cycle more closely.
 

@@ -9,25 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from hcaptcha_challenger.models import ChallengeTypeEnum, RequestType
 from loguru import logger
 from pydantic import BaseModel
 
-KNOWN_CHALLENGE_TYPES = {
-    "image_drag_single",
-    "image_drag_multiple",
-    "image_drag_multi",
-    "image_label_single_select",
-    "image_label_binary",
-    "image_label_multi_select",
-    "image_label_area_select",
-    "image_label_multiple_choice",
-}
-
-CHALLENGE_TYPE_ALIASES = {"image_drag_multi": "image_drag_multiple"}
-SCHEMA_CHALLENGE_TYPE_ALIASES = {
-    "image_drag_multiple": "image_drag_multi",
-    "image_drag_multi": "image_drag_multiple",
-}
+CHALLENGE_TYPE_VALUES = frozenset(member.value for member in ChallengeTypeEnum)
+REQUEST_TYPE_VALUES = frozenset(member.value for member in RequestType)
+KNOWN_CHALLENGE_TYPES = CHALLENGE_TYPE_VALUES | REQUEST_TYPE_VALUES
 
 CHALLENGE_PROMPT_ALIASES = (
     "challenge_prompt",
@@ -40,12 +28,77 @@ POINTS_ALIASES = ("points", "point", "coordinates", "Coordinates")
 
 PATHS_ALIASES = ("paths", "path", "coordinates", "Coordinates")
 
+DRAG_SOURCE_ALIASES = (
+    "source",
+    "from",
+    "source_coordinates",
+    "source_position",
+    "start",
+    "start_point",
+    "src",
+)
+
+DRAG_TARGET_ALIASES = (
+    "target",
+    "to",
+    "target_coordinates",
+    "target_position",
+    "end",
+    "end_point",
+    "dst",
+    "tgt",
+    "dest",
+    "destination",
+)
+
 GLM_VISUAL_COORDINATE_INSTRUCTION = (
     "For image coordinate challenges, read the gray coordinate grid printed on the image. "
     "Return final JSON coordinates in that printed grid coordinate system, not local image "
     "pixels. Prefer the center of the target object unless the schema explicitly requires "
     "a bounding box or a drag path."
 )
+
+GLM_COMPLEX_DRAG_INSTRUCTION = (
+    "For drag-path challenges, inspect the full scene before answering and count every movable "
+    "piece that must be placed. Return one paths entry per required move and never collapse a "
+    "multi-piece answer into a single path. When the prompt names a count such as TWO, the paths "
+    "array must contain exactly that many moves. Distinguish solid movable pieces from hollow or "
+    "outlined destinations, then pair each piece with its exact matching silhouette by shape, "
+    "color, size, and orientation; do not pair objects merely because they share a row. For "
+    "line-completion puzzles, follow the numbered endpoints in order and match each movable "
+    "segment by shape, color, and orientation. A movable segment labeled N belongs in the empty "
+    "space between the fixed N-1 and N+1 segments. Infer the final placement by translating the "
+    "whole segment until both ends connect; end_point is the center of the segment at that final "
+    "placement, never the coordinate of a numbered marker or an existing endpoint. For segment "
+    "4, use the corridor between fixed segments 3 and 5 as a sanity check: its final center is "
+    "normally near the midpoint of the numbered 3 and 5 circles, adjusted so both exposed ends "
+    "connect. Reject unrelated empty areas outside that corridor. Always use "
+    "the center of the movable piece as start_point and the center of its intended outline or "
+    "gap as end_point. Output only the response schema fields challenge_prompt and paths; do not "
+    "use aliases such as answer or src."
+)
+
+GLM_MULTI_TARGET_INSTRUCTION = (
+    "For multi-target selection challenges, inspect every candidate and return every matching "
+    "target, not only the first one. Use the center of each selected object and preserve a "
+    "stable visual reading order. For count-based animal tasks, first locate the narrow reference "
+    "strip containing example animals and repeated numeric count badges. The reference strip can "
+    "appear on either side and is not clickable. Select only matching tiles in the separate grid, "
+    "never the reference animals, badges, header, or margins, and return exactly the requested "
+    "count for each example. Check every point against the minimum and maximum coordinates printed "
+    "on the projection before answering."
+)
+
+
+def _glm_thinking_payload(model: str, config: Any) -> dict[str, str] | None:
+    """Keep GLM point-selection calls within hCaptcha response budgets."""
+    if not model.lower().startswith("glm-4.5"):
+        return None
+    if getattr(config, "thinking_config", None) is None:
+        return None
+    if "points" in _schema_field_names(getattr(config, "response_schema", None)):
+        return {"type": "disabled"}
+    return {"type": "enabled"}
 
 
 def _ensure_list(value: Any) -> list[Any]:
@@ -181,7 +234,6 @@ def _normalize_glm_response_text(text: str) -> str:
 
 def _extract_challenge_type(text: str) -> str | None:
     stripped = text.strip().strip('"').strip("'")
-    stripped = CHALLENGE_TYPE_ALIASES.get(stripped, stripped)
     if stripped in KNOWN_CHALLENGE_TYPES:
         return stripped
     return None
@@ -213,11 +265,7 @@ def _coerce_challenge_type_for_schema(
     if not enum_values or challenge_type in enum_values:
         return challenge_type
 
-    alias = SCHEMA_CHALLENGE_TYPE_ALIASES.get(challenge_type)
-    if alias in enum_values:
-        return alias
-
-    return challenge_type
+    return None
 
 
 def _extract_drag_points_from_text(text: str) -> tuple[dict[str, int], dict[str, int]] | None:
@@ -294,16 +342,10 @@ def _extract_drag_points_from_text(text: str) -> tuple[dict[str, int], dict[str,
 
 def _extract_drag_points_from_value(value: Any) -> tuple[dict[str, int], dict[str, int]] | None:
     if isinstance(value, dict):
-        for source_key, target_key in (
-            ("source", "target"),
-            ("from", "to"),
-            ("source_coordinates", "target_coordinates"),
-            ("source_position", "target_position"),
-            ("start", "end"),
-            ("start_point", "end_point"),
-        ):
-            if source_key in value and target_key in value:
-                return _build_drag_points_pair(value.get(source_key), value.get(target_key))
+        drag_paths = _extract_drag_paths_from_value(value)
+        if drag_paths:
+            first_path = drag_paths[0]
+            return first_path["start_point"], first_path["end_point"]
 
         paths_payload = value.get("paths")
         if isinstance(paths_payload, list):
@@ -333,6 +375,107 @@ def _extract_drag_points_from_value(value: Any) -> tuple[dict[str, int], dict[st
         return _extract_drag_points_from_text(value)
 
     return None
+
+
+def _extract_drag_paths_from_value(value: Any) -> list[dict[str, dict[str, int]]]:
+    if isinstance(value, dict):
+        paths: list[dict[str, dict[str, int]]] = []
+
+        for source_key in DRAG_SOURCE_ALIASES:
+            if source_key not in value:
+                continue
+            for target_key in DRAG_TARGET_ALIASES:
+                if target_key not in value:
+                    continue
+
+                sources = value.get(source_key)
+                targets = value.get(target_key)
+                if isinstance(sources, list) and isinstance(targets, list):
+                    source_points = [_coerce_point(item) for item in sources]
+                    target_points = [_coerce_point(item) for item in targets]
+                    if (
+                        source_points
+                        and len(source_points) == len(target_points)
+                        and all(source_points)
+                        and all(target_points)
+                    ):
+                        return [
+                            {"start_point": source, "end_point": target}
+                            for source, target in zip(source_points, target_points)
+                        ]
+
+                pair = _build_drag_points_pair(sources, targets)
+                if pair:
+                    return [{"start_point": pair[0], "end_point": pair[1]}]
+
+        for key in ("paths", "path", "coordinates", "Coordinates", "answer", "src"):
+            if key not in value:
+                continue
+            paths.extend(_extract_drag_paths_from_value(value.get(key)))
+            if paths:
+                return paths
+
+        return []
+
+    if isinstance(value, (list, tuple)):
+        values = list(value)
+        if len(values) == 4 and all(not isinstance(item, (dict, list, tuple)) for item in values):
+            pair = _build_drag_points_pair(values[:2], values[2:])
+            if pair:
+                return [{"start_point": pair[0], "end_point": pair[1]}]
+
+        nested_paths: list[dict[str, dict[str, int]]] = []
+        for item in values:
+            nested_paths.extend(_extract_drag_paths_from_value(item))
+        if nested_paths:
+            return nested_paths
+
+        if len(values) == 2:
+            pair = _build_drag_points_pair(values[0], values[1])
+            if pair:
+                return [{"start_point": pair[0], "end_point": pair[1]}]
+
+        point_values = [_coerce_point(item) for item in values]
+        if point_values and len(point_values) % 2 == 0 and all(point_values):
+            return [
+                {"start_point": point_values[index], "end_point": point_values[index + 1]}
+                for index in range(0, len(point_values), 2)
+            ]
+
+        return []
+
+    if isinstance(value, str):
+        parsed = _extract_literal_payload(value)
+        if parsed is not None and parsed != value:
+            paths = _extract_drag_paths_from_value(parsed)
+            if paths:
+                return paths
+
+        paths = []
+        for chunk in value.split(";"):
+            match = re.fullmatch(r"\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*", chunk)
+            if not match:
+                continue
+            sx, sy, tx, ty = map(int, match.groups())
+            paths.append({"start_point": {"x": sx, "y": sy}, "end_point": {"x": tx, "y": ty}})
+        if paths:
+            return paths
+
+        separated_pair = re.fullmatch(
+            r"\s*\(?\s*(-?\d+)\s*,\s*(-?\d+)\s*\)?\s*"
+            r"(?:\||->|=>|:)\s*"
+            r"\(?\s*(-?\d+)\s*,\s*(-?\d+)\s*\)?\s*",
+            value,
+        )
+        if separated_pair:
+            sx, sy, tx, ty = map(int, separated_pair.groups())
+            return [{"start_point": {"x": sx, "y": sy}, "end_point": {"x": tx, "y": ty}}]
+
+        pair = _extract_drag_points_from_text(value)
+        if pair:
+            return [{"start_point": pair[0], "end_point": pair[1]}]
+
+    return []
 
 
 def _build_drag_points_pair(
@@ -420,13 +563,16 @@ def _extract_points_from_value(value: Any) -> list[dict[str, int]]:
 
 
 def _coerce_point(value: Any) -> dict[str, int] | None:
-    if isinstance(value, dict):
-        if "x" in value and "y" in value:
-            return {"x": int(value["x"]), "y": int(value["y"])}
-        return None
+    try:
+        if isinstance(value, dict):
+            if "x" in value and "y" in value:
+                return {"x": int(value["x"]), "y": int(value["y"])}
+            return None
 
-    if isinstance(value, (list, tuple)) and len(value) >= 2:
-        return {"x": int(value[0]), "y": int(value[1])}
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            return {"x": int(value[0]), "y": int(value[1])}
+    except (TypeError, ValueError):
+        return None
 
     if isinstance(value, str):
         match = re.search(r"(\d+)\s*,\s*(\d+)", value)
@@ -571,6 +717,15 @@ def _build_drag_payload(
     }
 
 
+def _build_drag_paths_payload(
+    paths: list[dict[str, dict[str, int]]], *, challenge_prompt: str = "", inferred_rule: str = ""
+) -> dict[str, Any] | None:
+    if not paths:
+        return None
+
+    return {"challenge_prompt": challenge_prompt, "inferred_rule": inferred_rule, "paths": paths}
+
+
 def _normalize_glm_answer_value(
     value: Any, *, challenge_prompt: str = "", inferred_rule: str = ""
 ) -> dict[str, Any] | None:
@@ -644,10 +799,14 @@ def _coerce_payload_for_schema(payload: dict[str, Any], schema: Any, text: str) 
     inferred_rule = str(payload.get("inferred_rule") or "")
 
     if "paths" in fields:
-        if "paths" in payload:
-            payload.setdefault("challenge_prompt", challenge_prompt)
-            payload.setdefault("inferred_rule", inferred_rule)
-            return payload
+        raw_payload = _extract_literal_payload(text)
+        for candidate in (raw_payload, payload):
+            drag_paths = _extract_drag_paths_from_value(candidate)
+            normalized_paths = _build_drag_paths_payload(
+                drag_paths, challenge_prompt=challenge_prompt, inferred_rule=inferred_rule
+            )
+            if normalized_paths:
+                return normalized_paths
 
         normalized_drag = None
         if "source" in payload and "target" in payload:
@@ -718,6 +877,8 @@ def _coerce_payload_for_schema(payload: dict[str, Any], schema: Any, text: str) 
 
         if normalized_drag:
             return normalized_drag
+
+        raise ValueError("GLM drag response does not contain valid coordinate pairs")
 
     if "points" in fields:
         area_payload = _build_area_select_payload(
@@ -962,6 +1123,11 @@ class _OpenAICompatibleAsyncModels:
 
         if has_image:
             system_messages.append(GLM_VISUAL_COORDINATE_INSTRUCTION)
+            response_fields = _schema_field_names(getattr(config, "response_schema", None))
+            if "paths" in response_fields:
+                system_messages.append(GLM_COMPLEX_DRAG_INSTRUCTION)
+            elif "points" in response_fields:
+                system_messages.append(GLM_MULTI_TARGET_INSTRUCTION)
 
         if system_messages:
             messages.insert(0, {"role": "system", "content": "\n\n".join(system_messages)})
@@ -983,12 +1149,8 @@ class _OpenAICompatibleAsyncModels:
         if getattr(config, "response_schema", None) is not None:
             payload["response_format"] = {"type": "json_object"}
 
-        if (
-            self._provider_name == "GLM"
-            and getattr(config, "thinking_config", None) is not None
-            and model.startswith("glm-4.5")
-        ):
-            payload["thinking"] = {"type": "enabled"}
+if thinking_payload := _glm_thinking_payload(model, config):
+            payload["thinking"] = thinking_payload
 
         if self._provider_name == "DeepSeek":
             thinking_enabled = bool(getattr(self._settings, "DEEPSEEK_THINKING_ENABLED", False))
@@ -1108,8 +1270,17 @@ class _OpenAICompatibleAsyncModels:
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0)) as client:
-            response = await client.post(endpoint, headers=headers, json=payload)
+        request_timeout = float(self._settings.GLM_REQUEST_TIMEOUT_SECONDS)
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(request_timeout, connect=min(30.0, request_timeout))
+        ) as client:
+            try:
+                response = await client.post(endpoint, headers=headers, json=payload)
+            except httpx.TimeoutException as err:
+                raise TimeoutError(
+                    f"GLM request timed out after {request_timeout:g} seconds "
+                    f"({type(err).__name__})"
+                ) from err
             if response.is_error:
                 self._log_provider_error(response)
                 response.raise_for_status()
@@ -1173,6 +1344,20 @@ class DeepSeekCompatibleGenAIClient:
             uri_scheme="deepseek-local",
             data_url_images=True,
         )
+
+
+def _limit_glm_provider_attempts(max_attempts: int = 2) -> bool:
+    try:
+        from hcaptcha_challenger.tools.internal.providers.gemini import GeminiProvider
+        from tenacity import stop_after_attempt
+    except ImportError:
+        return False
+
+    retrying = getattr(GeminiProvider.generate_with_images, "retry", None)
+    if retrying is None:
+        return False
+    retrying.stop = stop_after_attempt(max_attempts)
+    return True
 
 
 def apply_gemini_patch(settings: Any):
@@ -1243,6 +1428,8 @@ def apply_glm_patch(settings: Any):
         from google import genai
 
         genai.Client = GLMCompatibleGenAIClient
+        if not _limit_glm_provider_attempts():
+            logger.warning("GLM provider retry budget could not be configured")
         logger.info(
             f"🚀 GLM 兼容补丁已应用 | 模型: {settings.GLM_MODEL} | 地址: {settings.GLM_BASE_URL}"
         )

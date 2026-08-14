@@ -233,7 +233,9 @@ For similar reports, use this order:
 4. If Epic introduces new copy or a new dialog, add high-precision text handling first, then add a screenshot capture point.
 5. If model output shape changes, normalize it in [`llm_adapter.py`](../app/extensions/llm_adapter.py) instead of spreading provider-specific behavior into the business flow.
 
-This project cannot honestly guarantee a literal 100% success rate because Epic risk controls, shared cloud IPs, captcha types, and third-party model responses are outside the codebase's control. The engineering target is recoverability, observability, no false success reports, and enough evidence on every failure to support the next fix.
+This project cannot honestly guarantee a literal 100% success rate because Epic risk controls, shared cloud IPs, captcha types, and third-party model responses are outside the codebase's control. If a shared cloud IP is receiving unusually strict challenges, you may optionally configure `BROWSER_PROXY` as `http://username:password@host:port`, `https://...`, `socks4://...`, or `socks5://...`; networking is unchanged when it is absent. A proxy only changes the network exit and cannot guarantee bypassing risk controls. Its quality, trust, and cost remain the user's responsibility.
+
+The engineering target is recoverability, observability, no false success reports, and enough evidence on every failure to support the next fix.
 
 ---
 

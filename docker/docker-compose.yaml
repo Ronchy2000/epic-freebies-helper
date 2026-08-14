@@ -27,22 +27,26 @@ services:
       # - GLM_API_KEY=your_glm_api_key
       # - GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
       # - GLM_MODEL=glm-4.6v
-      # 如果使用 DeepSeek V4，请改成下面这组
+# 如果使用 DeepSeek V4，请改成下面这组
       # - LLM_PROVIDER=deepseek
       # - DEEPSEEK_API_KEY=your_deepseek_api_key
       # - DEEPSEEK_BASE_URL=https://api.deepseek.com
       # - DEEPSEEK_MODEL=deepseek-v4-pro
       # - DEEPSEEK_THINKING_ENABLED=false
       # - DEEPSEEK_REASONING_EFFORT=high
+
       # ----------------------------------------
       # 运行参数
       # ----------------------------------------
       - ENABLE_APSCHEDULER=true
+      - BROWSER_BACKEND=auto
+      - HEADLESS=virtual
+      - BROWSER_PROXY=${BROWSER_PROXY:-}
       
       - DISABLE_BEZIER_TRAJECTORY=false
       - EXECUTION_TIMEOUT=120
       - RESPONSE_TIMEOUT=30
-      - RETRY_ON_FAILURE=true
+      - RETRY_ON_FAILURE=false
       - WAIT_FOR_CHALLENGE_VIEW_TO_RENDER_MS=1500
       - CONSTRAINT_RESPONSE_SCHEMA=true
       - CHALLENGE_CLASSIFIER_MODEL=gemini-2.5-flash
