@@ -603,6 +603,14 @@ class EpicAuthorization:
                         return candidate
         return None
 
+    async def _is_password_submit_blocked(self) -> bool:
+        button = await self._visible_password_submit_button()
+        if button is None:
+            return True
+        with suppress(Exception):
+            return not await button.is_enabled()
+        return False
+
     async def _advance_email_login(self, agent: AgentV) -> None:
         """Advance the email step while allowing Epic to challenge before Continue."""
         email_input = self.page.locator("#email")
@@ -963,10 +971,15 @@ class EpicAuthorization:
                 continue
 
             captcha_visible = await self._has_visible_hcaptcha_challenge()
-            if not captcha_visible and total_captcha_attempts == 0 and submission_generation:
+            if not captcha_visible and submission_generation:
                 # The first submit can expose only the iframe container; let the solver inspect
-                # its payload before the inner challenge view finishes rendering.
-                captcha_visible = await self._has_visible_hcaptcha_widget()
+                # its payload before the inner challenge view finishes rendering. On later
+                # attempts, use this fallback only while the login submit is blocked; a solved
+                # checkbox iframe can remain visible with an enabled submit button.
+                widget_visible = await self._has_visible_hcaptcha_widget()
+                captcha_visible = widget_visible and (
+                    total_captcha_attempts == 0 or await self._is_password_submit_blocked()
+                )
 
             if captcha_visible:
                 captcha_attempts += 1
@@ -1061,11 +1074,16 @@ class EpicAuthorization:
                     elif (
                         not self._is_login_success_signal.empty()
                         or self._is_mfa_page()
-                        or "/id/login" not in self.page.url
+                        or "/id/login" not in self.page.url.lower()
                     ):
                         logger.debug(
                             "Epic password form disappeared after captcha; continuing to "
                             "observe the authentication result"
+                        )
+                    elif await self._has_visible_hcaptcha_widget():
+                        logger.debug(
+                            "Epic password submit became blocked by a new hCaptcha; "
+                            "continuing with captcha recovery"
                         )
                     else:
                         raise EpicLoginRestartRequiredError(
@@ -1130,8 +1148,10 @@ class EpicAuthorization:
                 current_button = await self._visible_password_submit_button()
                 if current_button is not None:
                     sign_in_button = current_button
-                    await expect(sign_in_button).to_be_enabled(timeout=1000)
-                    break
+                    if await sign_in_button.is_enabled():
+                        break
+                    if await self._has_visible_hcaptcha_widget():
+                        return None
                 await self.page.wait_for_timeout(250)
             else:
                 raise PlaywrightTimeoutError("Timed out waiting for Epic password submit state")

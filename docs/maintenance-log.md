@@ -1482,3 +1482,11 @@
 - 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
 - 处理结果：密码重提交后设置短暂观察窗口；若仍停留在登录页，则最多进行 3 次有界重提交，之后交给外层认证尝试重建页面，不再无限等待。每次重提交仍轮换独立验证码和登录提交 generation。
 - 验证边界：需新的 Actions run 确认重提交后登录、Store session 和逐款入库证据；按仓库规则不执行测试。
+
+### 2026-08-29 识别重提交阶段被阻塞的 hCaptcha 变体
+
+- 线上验证：Actions run `33234998769` 在首次验证码成功后重新提交密码；第二次恢复时日志显示 `#sign-in` 为 `disabled/loading`，但失败截图显示新的 hCaptcha challenge，说明窄 challenge URL 判断漏掉了该变体。
+- 根因判断：Epic 新挑战的 iframe 在该阶段不一定包含预期的 `frame=challenge` URL 片段；仅依赖窄检测会继续等待按钮启用，并把活动验证码误判为提交控件故障。
+- 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
+- 处理结果：登录结果阶段在 hCaptcha widget 可见且密码提交控件被阻塞时启用宽检测；重提交路径遇到同样状态时交回验证码恢复，而成功后仍可见但提交控件已启用的 checkbox 不会触发重复求解。
+- 验证边界：需新的 Actions run 确认该验证码变体能继续登录、Store session 和逐款入库；按仓库规则不执行测试。
