@@ -1490,3 +1490,9 @@
 - 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
 - 处理结果：登录结果阶段在 hCaptcha widget 可见且密码提交控件被阻塞时启用宽检测；重提交路径遇到同样状态时交回验证码恢复，而成功后仍可见但提交控件已启用的 checkbox 不会触发重复求解。
 - 验证边界：需新的 Actions run 确认该验证码变体能继续登录、Store session 和逐款入库；按仓库规则不执行测试。
+
+### 2026-08-29 登录恢复与当周双游戏领取验证通过
+
+- 线上验证：Actions run `33235566379` 使用提交 `0d369fc`，依赖、Camoufox 和 hCaptcha 契约检查均通过。密码登录先后完成两轮 `Challenge success`，第二轮为此前漏判的提交阻塞 challenge；后续入口明确记录 `Epic Games is already logged in`。
+- 领取证据：官方促销结果包含 `Breathedge` 和 `Rival Stars Horse Racing: Desktop Edition`；两款页面均两次记录 purchase button marker `IN LIBRARY`，最终记录 `Confirmed 2 instant claim(s)` 与 `Process completed (No cart items pending)`。
+- 结论：本次运行已确认两款当周免费游戏入库，登录 challenge 变体修复完成运行时验收。该结论基于逐款入库日志，不仅基于 workflow 绿色状态。
