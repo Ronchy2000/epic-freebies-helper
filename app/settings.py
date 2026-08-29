@@ -92,7 +92,12 @@ class EpicSettings(AgentConfig):
 
     ENABLE_APSCHEDULER: bool = Field(default=True)
     TASK_TIMEOUT_SECONDS: int = Field(default=900)
-    AUTH_MAX_ATTEMPTS: int = Field(default=5, ge=3, le=8)
+    # A successful hosted-runner login has taken nearly four minutes. Keep enough room for a
+    # second challenge while still bounding one authentication attempt.
+    AUTH_TIMEOUT_SECONDS: int = Field(default=420, ge=120, le=900)
+    # Repeated login attempts increase Epic's risk score; one clean retry is enough before
+    # handing the account back to a normal browser.
+    AUTH_MAX_ATTEMPTS: int = Field(default=2, ge=1, le=8)
     REDIS_URL: str = Field(default="redis://redis:6379/0")
     CELERY_WORKER_CONCURRENCY: int = Field(default=1)
     CELERY_TASK_TIME_LIMIT: int = Field(default=1200)

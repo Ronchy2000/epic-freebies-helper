@@ -197,4 +197,16 @@ These safeguards do not bypass Epic or hCaptcha risk controls. If difficult chal
 
 Epic weekly freebies usually refresh on Thursday. For most regular users, running once after the refresh is a better default: it uses fewer GitHub Actions minutes and matches the real claim cycle more closely.
 
-If you prefer more redundancy, you can still edit the workflow and run it multiple times per week, or keep using manual `Run workflow` as a fallback.
+For an occasional fallback, keep manual `Run workflow` available, but do not rerun it repeatedly in a short window because that can increase Epic risk controls and captcha difficulty.
+
+### 6. How to improve long-term stability
+
+Each GitHub-hosted runner is ephemeral, so `app/volumes/user_data` is not preserved between runs. Hosted runners also use shared cloud egress IPs. That means the workflow may trigger a fresh Epic login and hCaptcha every week; simply adding more retries can increase the risk score instead of improving reliability.
+
+For this project, use this order of preference:
+
+1. **Prefer your own Linux host, NAS, or Docker deployment**: mount `app/volumes/` on persistent storage, complete the Epic login and any required confirmations once in a normal browser, then let the scheduled task reuse the same profile.
+2. **If GitHub Actions is required**: run once after the weekly refresh, inspect screenshots and logs before retrying, and avoid repeated manual runs in a short window. `BROWSER_PROXY` can change the egress conditions but cannot bypass Epic or hCaptcha risk controls.
+3. **Do not upload cookies, browser profiles, or login state to artifacts or caches**: they contain reusable account sessions, and cache retention is not an appropriate long-term session store.
+
+Projects based on Epic device authorization can make first-time authentication more stable than password plus hCaptcha, but some have removed fully automatic order placement and still require manual confirmation. They are not drop-in replacements for this workflow.

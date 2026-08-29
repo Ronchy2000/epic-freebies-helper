@@ -1341,3 +1341,158 @@
   - 计数题提示改为方向无关；通过重复数量徽标识别参考条方向并约束另一侧网格。所有点选答案在缓存和点击前验证挑战边界，计数题额外验证可点击网格，越界答案直接拒绝。
   - 无效的标量拖拽坐标提前报告为结构错误；新增浏览器请求头、超时信息、重试预算、左右参考条和越界坐标回归覆盖。
   - 本地定向测试 `35 passed`，完整测试 `60 passed`，Ruff、变更文件 Black 和 `git diff --check` 均通过。
+
+### 2026-08-28 核对 fork 同步状态并收敛 Epic 登录 challenge 状态机
+
+- 现象：
+  - Actions run `33106170399` 使用提交 `f689bcc`，在 runner、依赖安装、Camoufox、hCaptcha 协议检查之后失败；首个明确卡点是邮箱页的 `#continue` 处于 disabled，旧逻辑仍直接点击并等待超时。
+  - 旧流程在同一页面连续调用 hCaptcha 等待器。日志先出现 `signal=failure`，之后即使出现 `Challenge success` 也没有稳定地重新提交仍停留在密码页的登录表单，最后回到邮箱页并以 `Incorrect response. Please refresh the page.` 结束；没有登录成功、商店会话或入库证据。
+  - fork 的 `origin/master=f689bcc` 与上游 `upstream/master=50043c4` 看起来 SHA 不同，但 `50043c4` 已经是 `f689bcc` 的祖先；两者的实际差异只有 fork 自己新增的 `sync-upstream.yml`。同步 Action 输出 `Upstream is already included in fork history` 是正确的无操作结果，不是漏拉上游功能提交。
+- 根因判断：
+  - 本次失败不是上游代码未同步，而是登录状态机把“checkbox iframe 仍挂载”误当成“仍有可处理 challenge”，并在同一响应队列上重复消费结果；失败信号也没有立即结束当前认证尝试。
+  - Hosted Runner 每次都是临时环境，无法跨周复用 `app/volumes/user_data`，共享出口 IP 又会增加 Epic 风控波动，因此即使代码修好，Hosted Runner 仍不可能达到自托管持久 profile 的稳定性。
+- 改动文件：
+  - `app/services/epic_authorization_service.py`
+  - `app/settings.py`
+  - `.env.example`
+  - `.github/workflows/README.md`
+  - `.github/workflows/README.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 邮箱阶段现在只点击 enabled 的 `Continue`；发现真实 challenge 时只处理一次，成功后等待 challenge iframe 消失再继续。
+  - 密码/MFA 阶段按提交状态区分 challenge；失败立即结束当前页面尝试，成功后仅当密码表单仍存在时重新提交，不再在同一页面无界循环。
+  - 外层认证默认限制为两次，并在换页重试时保留浏览器会话；移除每次登录强制追加的 `sessionInvalidated=true`，让自托管持久 profile 能复用登录状态。
+  - 已通过 Black、Ruff、`py_compile` 和 `git diff --check`；按仓库规则未执行测试。修复后的 Actions 运行尚未触发，因此当前不能把运行时登录或领取宣称为已验证成功。
+  - 文档补充了自托管/NAS/Docker 持久 profile 的优先部署建议，并明确不应把 Cookie 或浏览器 profile 上传到 artifact/cache。
+
+### 2026-08-28 收敛登录重试并阻止 Actions 并发认证
+
+- 现象：修复前的登录流程可能在邮箱阶段重复点击禁用按钮，或在 hCaptcha 成功后继续消费旧响应；一次运行最多重复认证 5 次。邮箱阶段的实现还没有完全遵守新增的认证超时配置。
+- 根因判断：Epic 登录页和 hCaptcha iframe 都是异步状态；并发运行或无界重试会增加账号风控，而不是提高成功率。checkbox iframe 的通用固定选择器也可能与当前实际 iframe 不一致。
+- 改动文件：
+  - `app/services/epic_authorization_service.py`
+  - `.github/workflows/epic-gamer.yml`
+  - `docs/maintenance-log.md`
+- 处理结果：checkbox 改为使用已发现的实际 iframe 直接点击；邮箱阶段使用完整 `AUTH_TIMEOUT_SECONDS`；认证重试默认限制为 2 次；同一仓库的定时和手动工作流使用互斥组且不取消正在运行的任务。
+- 验证结果：变更文件 Black、Ruff、`py_compile`、`git diff --check` 和 `PYTHONPATH=app .venv/bin/python scripts/check_hcaptcha_contract.py` 均通过；按仓库规则未执行测试。新的 Actions 运行仍需推送后才能验证真实 Epic 登录和入库结果。
+
+### 2026-08-28 修正 hCaptcha 成功响应在异步回调中的丢失
+
+- 现象：`/checkcaptcha/` 已返回成功后，后续空响应或 `/getcaptcha/` 回调可能清空 `AgentV` 的响应队列，导致登录流程再次收到失败或超时；此前只在空响应路径上做延迟处理，无法覆盖非空失败响应和回调并发。
+- 根因判断：`hcaptcha-challenger 0.19.0` 的原始 `/getcaptcha/` 处理器会无条件清空响应队列；Playwright 的 response 回调并发执行，空、失败、成功响应的先后顺序不能假设。
+- 改动文件：`app/extensions/hcaptcha_adapter.py`、`tests/test_hcaptcha_adapter.py`、`docs/maintenance-log.md`。
+- 处理结果：统一在锁内读取和分类 `/checkcaptcha/` 响应；空或非 pass 结果延迟一个短暂窗口，后续 pass 优先；开始新的 hCaptcha 尝试时清理旧失败但保留已经排队的 pass，避免上游 `/getcaptcha/` 清理操作丢失成功结果；新增成功先到和失败延迟后被成功覆盖的回归用例。
+- 验证边界：需要推送后的真实 Actions 运行确认 Epic 登录、Store session 和逐款入库证据；按仓库规则不执行测试。
+
+### 2026-08-28 隔离迟到的 hCaptcha 与 Epic 登录响应
+
+- 现象：一次 hCaptcha 或登录请求结束后，迟到的 `/checkcaptcha/`、`/getcaptcha/` 或 `/id/api/login` 响应可能被下一次尝试消费；邮箱步骤也可能在对应登录 POST 尚未返回时继续填写密码，形成异步竞态。
+- 根因判断：此前响应处理只依赖当前队列/generation，未记录响应对应的 request；未知响应会被当作当前尝试处理。登录提交状态同样缺少严格的 request-response 绑定，且非 JSON 登录响应不会唤醒等待屏障。
+- 改动文件：
+  - `app/extensions/hcaptcha_adapter.py`
+  - `app/services/epic_authorization_service.py`
+  - `tests/test_hcaptcha_adapter.py`
+  - `docs/maintenance-log.md`
+- 处理结果：在 request 事件记录 hCaptcha 和登录请求的尝试 generation，response 只接受同一 generation 的已登记请求；迟到或未知响应直接丢弃。邮箱提交、密码重提交和 TOTP 提交均等待对应登录 POST 返回后再推进；非 JSON 响应也会形成完成信号。补充了跨尝试迟到响应和成功覆盖延迟失败的回归用例。已进行静态检查，真实 Epic 登录与入库仍需新的 Actions 运行确认。
+
+### 2026-08-29 修正验证码尝试启动晚于登录和结账点击的竞态
+
+- 现象：验证码响应按 request generation 隔离后，登录提交或结账按钮可能先触发 hCaptcha；调用方要等到 challenge iframe 可见后才启动 response window，期间返回的 `getcaptcha` payload 可能被误判为未登记或过期。
+- 根因判断：hCaptcha 的初始化请求发生在 UI 状态轮询之前，不能把“发现可见 challenge”作为尝试起点；Hosted Runner 的异步网络时序会放大这个窗口。
+- 改动文件：`app/services/epic_authorization_service.py`、`app/services/epic_games_service.py`、`docs/maintenance-log.md`。
+- 处理结果：登录 agent 和 checkout agent 创建后立即登记初始验证码窗口；邮箱 Continue、密码提交、MFA 提交、Place Order 和购物车确认订单均在点击前确保当前 generation active。跨尝试的 request identity/generation 过滤保持不变，避免用放宽过滤来掩盖迟到响应问题。
+- 验证边界：已重新执行编译检查和 diff 检查计划；新的线上 Actions 运行尚未触发，因此仍需以登录成功、Store session 和每款游戏的入库证据完成运行时验证。按仓库规则不执行测试。
+
+### 2026-08-29 隔离连续浏览器动作的验证码响应窗口
+
+- 现象：同一个 `AgentV` 在连续邮箱、密码、MFA 或下单动作之间可能保持 active response window；后一动作会复用前一动作的 generation，迟到响应仍可能进入错误的业务阶段。
+- 根因判断：响应 generation 需要绑定“浏览器动作”，而不是只绑定 Agent 生命周期；无动作时提前开启窗口还会扩大旧 payload 与新点击之间的关联范围。
+- 改动文件：`app/extensions/hcaptcha_adapter.py`、`app/services/epic_authorization_service.py`、`app/services/epic_games_service.py`。
+- 处理结果：`begin_captcha_attempt(..., fresh=True)` 为新点击立即轮换 generation 和响应队列；同一动作内由等待器继续复用当前窗口。密码重提交、邮箱 Continue、MFA、Place Order 和购物车最终确认使用 fresh 窗口；移除登录/即时结账/进入购物车结账页时的无动作预启动。
+- 验证边界：已执行编译、hCaptcha 协议契约和 diff 检查；按仓库规则未执行测试，仍需新的 Actions 运行确认登录、Store session 与逐款入库。
+
+### 2026-08-29 修正密码页验证码替换登录按钮的等待竞态
+
+- 线上验证：修复分支 Actions run `33231697845` 已完成 runner、依赖、协议检查和浏览器安装，但在认证阶段两次报 `TimeoutError`，卡在等待 `#sign-in` 可见；没有进入验证码求解、Store session 或领取流程。
+- 根因确认：邮箱阶段已推进到密码页，但 Epic 在密码提交前可能先用 hCaptcha checkbox 替换或延迟渲染 `#sign-in`；代码在 `wait_for(#sign-in)` 阶段直接失败，未进入后续 challenge 检查。上游成功 run 曾在同一位置通过点击超时分支进入验证码处理，说明这是新增状态机的回归。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：密码提交和密码重提交改为轮询密码页、challenge、checkbox 和登录按钮；按钮暂不可见时先激活已出现的 checkbox，challenge 可见后交给验证码流程；仅在页面离开登录步骤或超出有界等待时失败。
+- 验证边界：新的 Actions 运行需要确认该回归修复；继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 兼容 Epic 密码按钮的 disabled 状态
+
+- 线上验证：Actions run `33231906339` 已进入密码页，但连续 30 秒报告 `Epic sign-in button remained disabled without an active hCaptcha challenge`；仍未进入验证码、Store session 或领取流程。
+- 根因判断：Epic 登录按钮的 DOM enabled 状态不能作为提交前置条件；上游成功运行采用直接点击，再由点击过程中的替换/超时进入 hCaptcha 流程。Camoufox/当前登录页可能把可点击或即将替换的按钮报告为 disabled，导致新状态机在点击之前提前终止。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：密码提交恢复直接尝试点击；点击异常时检查 challenge/checkbox，若未出现则结束当前验证码窗口并在有界时间内重试，不再仅因 `is_enabled()` 为 false 退出认证。
+- 验证边界：修复需要新的 Actions 运行验证；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 恢复密码页首次点击并扩大 iframe 启动期识别
+
+- 线上验证：Actions run `33231906339` 在密码页连续 30 秒未发现 `#sign-in` 可见，未进入 hCaptcha；对照上游成功 run `32457261253`，上游是在点击等待超时后进入 hCaptcha 求解。
+- 根因判断：Epic 密码页在 hCaptcha iframe 启动期间可能暂时没有可见 `#sign-in`，而 iframe 内部 `.challenge-view` 也尚未渲染；仅轮询内部节点会错过原本应由一次 locator click 触发的状态转换。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：密码页首次即使按钮暂不可见也执行一次有界 locator click；点击异常后继续检查 challenge/checkbox，再进行有限重试。hCaptcha 检测增加 iframe 本身可见但内部节点尚未完成渲染的启动期兜底。
+- 验证边界：需要新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 为 Hosted Runner 恢复干净 Epic 登录入口
+
+- 线上验证：Actions run `33232262550` 已执行密码页点击，但页面始终没有恢复可提交控件，也未进入 hCaptcha；未产生登录、Store session 或领取证据。
+- 根因判断：唯一成功对照 run `32457261253` 使用 `sessionInvalidated=true`。Hosted Runner 每次都是新 profile，不需要保留站点会话；去掉该参数后，Epic 可能停留在不完整的登录表单状态。自托管持久 profile 则应继续复用会话。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：仅当 `GITHUB_ACTIONS=true` 时给登录入口追加 `sessionInvalidated=true`；本地/自托管不追加，保留持久登录能力。
+- 验证边界：需要一次新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 恢复提交过渡期的宽 hCaptcha 检测
+
+- 线上验证：Actions run `33232453279` 的首次密码点击已执行但超时，之后没有进入验证码；仅按 `frame=challenge` 和内部 `.challenge-view` 检查未捕获上游成功运行中已出现的 hCaptcha 过渡状态。
+- 根因判断：hCaptcha 在登录按钮被替换的过渡期可能只有可见 iframe 容器或安全提示文本，内部 challenge view 尚未完成渲染。登录结果阶段不能使用宽检测，因为 checkbox iframe 会在成功后继续挂载。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：新增宽 widget 检测，仅用于密码提交/点击异常的分流；登录结果阶段继续使用窄 challenge 检测，避免重复消费已经成功的 checkbox。
+- 验证边界：需要新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 兼容 Epic 密码页提交控件变体
+
+- 线上验证：Actions run `33232262550` 已实际执行密码页点击，但 `#sign-in` 在 5 秒点击窗口内不可操作，之后页面仍未出现可识别 challenge，最终有界认证失败；没有 Store session 或入库证据。
+- 根因判断：当前 Epic 登录页的提交控件可能在 hCaptcha 初始化期间短暂缺失，或改用标准 submit/可访问名称按钮；只绑定单一 `#sign-in` 选择器会把控件变体和验证码初始化时序混为同一失败。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：密码提交优先使用 `#sign-in`，并兼容 `button/input[type=submit]` 和精确名称 `Sign in` 的按钮；重提交等待也使用同一选择器集合，仍保留有限点击和 challenge 状态检查。
+- 验证边界：需要新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 修正首次提交后 hCaptcha iframe 的启动期识别
+
+- 线上验证：Actions run `33232841765` 已推进到密码页，日志显示 `Epic email login step advanced to password`，但随后两次认证等待均超时；没有出现 `Challenge success`、`Login success`、Store session 或入库证据。
+- 根因判断：密码提交后 hCaptcha 可能先挂载可见 iframe 容器，内部 challenge view 尚未完成渲染；登录结果等待只检查窄 challenge 节点，因此没有及时把该提交交给 solver。直接在提交函数中使用宽 widget 检测又会把成功后的残留 checkbox 当成新挑战。
+- 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
+- 处理结果：仅在首次提交且尚未处理任何验证码时，登录结果等待允许用可见 hCaptcha widget 作为启动期兜底；进入 solver 后恢复窄 challenge 检测，避免成功后的 checkbox 被重复消费。提交函数仍保留一次真实点击和有界重试。
+- 验证边界：需新的 Actions run 确认登录、Store session 和逐款入库证据；按仓库规则不执行测试。
+
+### 2026-08-29 允许验证码成功后恢复未发出登录 POST 的密码提交
+
+- 线上验证：Actions run `33233714640` 已出现 `Challenge success`，但随后以 `Epic login submission did not return before a captcha retry` 失败；失败截图仍显示密码页和可用的 `Sign in` 按钮，未进入登录成功或 Store session。
+- 根因确认：首次密码点击在该时序下只启动了 hCaptcha，没有产生对应的 `/id/api/login` POST；验证码成功后强制等待该 POST 响应，导致本应再次点击密码提交的恢复路径被提前中止。成功后的残留 hCaptcha widget 也不应阻塞密码表单重提交。
+- 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
+- 处理结果：验证码成功后的登录响应等待允许“无匹配 POST”并回到页面状态机；若密码页仍在，则重新提交密码表单。严格的响应等待仍保留在邮箱步骤等必须确认前置提交结果的路径；重提交只把窄 challenge 视为活动验证码。
+- 验证边界：需新的 Actions run 确认重新提交后登录、Store session 和逐款入库证据；按仓库规则不执行测试。
+
+### 2026-08-29 为密码重提交增加有界恢复窗口
+
+- 线上验证：Actions run `33234240143` 已记录 `Resubmitted Epic password form after login hCaptcha`，但在密码页继续等待约 6 分钟后超时；没有登录成功、Store session 或入库证据。
+- 根因判断：Epic 在 hCaptcha 成功后可能保留密码页且点击不立即触发可观察的登录结果；仅重提交一次后等待整个认证超时，会把可恢复的短暂 UI/网络状态拖成整次失败。
+- 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
+- 处理结果：密码重提交后设置短暂观察窗口；若仍停留在登录页，则最多进行 3 次有界重提交，之后交给外层认证尝试重建页面，不再无限等待。每次重提交仍轮换独立验证码和登录提交 generation。
+- 验证边界：需新的 Actions run 确认重提交后登录、Store session 和逐款入库证据；按仓库规则不执行测试。
+
+### 2026-08-29 识别重提交阶段被阻塞的 hCaptcha 变体
+
+- 线上验证：Actions run `33234998769` 在首次验证码成功后重新提交密码；第二次恢复时日志显示 `#sign-in` 为 `disabled/loading`，但失败截图显示新的 hCaptcha challenge，说明窄 challenge URL 判断漏掉了该变体。
+- 根因判断：Epic 新挑战的 iframe 在该阶段不一定包含预期的 `frame=challenge` URL 片段；仅依赖窄检测会继续等待按钮启用，并把活动验证码误判为提交控件故障。
+- 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
+- 处理结果：登录结果阶段在 hCaptcha widget 可见且密码提交控件被阻塞时启用宽检测；重提交路径遇到同样状态时交回验证码恢复，而成功后仍可见但提交控件已启用的 checkbox 不会触发重复求解。
+- 验证边界：需新的 Actions run 确认该验证码变体能继续登录、Store session 和逐款入库；按仓库规则不执行测试。
+
+### 2026-08-29 登录恢复与当周双游戏领取验证通过
+
+- 线上验证：Actions run `33235566379` 使用提交 `0d369fc`，依赖、Camoufox 和 hCaptcha 契约检查均通过。密码登录先后完成两轮 `Challenge success`，第二轮为此前漏判的提交阻塞 challenge；后续入口明确记录 `Epic Games is already logged in`。
+- 领取证据：官方促销结果包含 `Breathedge` 和 `Rival Stars Horse Racing: Desktop Edition`；两款页面均两次记录 purchase button marker `IN LIBRARY`，最终记录 `Confirmed 2 instant claim(s)` 与 `Process completed (No cart items pending)`。
+- 结论：本次运行已确认两款当周免费游戏入库，登录 challenge 变体修复完成运行时验收。该结论基于逐款入库日志，不仅基于 workflow 绿色状态。

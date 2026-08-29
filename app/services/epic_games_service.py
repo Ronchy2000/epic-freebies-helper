@@ -22,6 +22,7 @@ from playwright.async_api import TimeoutError, FrameLocator
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
+from extensions.hcaptcha_adapter import begin_captcha_attempt, install_captcha_request_tracking
 from extensions.hcaptcha_runtime import wait_for_challenge_signal
 from models import OrderItem, Order
 from models import PromotionGame
@@ -1356,9 +1357,12 @@ class EpicGames:
                     page, f"checkout_security_check_attempt_{attempt}", url
                 )
 
-            await page.wait_for_timeout(2500)
-
             try:
+                # The checkout iframe can issue getcaptcha as soon as it is rendered. Arm the
+                # response window before waiting for the challenge so that payloads from this
+                # checkout attempt are not classified as stale.
+                await begin_captcha_attempt(agent)
+                await page.wait_for_timeout(2500)
                 remaining_seconds = max(1.0, max_wait_ms / 1000 - (time.monotonic() - started_at))
                 challenge_signal = await wait_for_challenge_signal(
                     agent,
@@ -1430,6 +1434,7 @@ class EpicGames:
             return True
 
         try:
+            await begin_captcha_attempt(agent)
             challenge_signal = await wait_for_challenge_signal(
                 agent, context="checkout_probe", timeout_seconds=25
             )
@@ -1458,6 +1463,7 @@ class EpicGames:
         )
 
         try:
+            await begin_captcha_attempt(agent)
             challenge_signal = await wait_for_challenge_signal(
                 agent, context="checkout_extended_probe", timeout_seconds=timeout_seconds
             )
@@ -1608,7 +1614,10 @@ class EpicGames:
 
         return " | ".join(parts) if parts else "state_unavailable"
 
-    async def _submit_place_order(self, payment_btn, url: str) -> bool:
+    async def _submit_place_order(self, payment_btn, url: str, agent: AgentV) -> bool:
+        # Place Order itself is the action that can create the checkout hCaptcha. Start tracking
+        # before the first click instead of waiting for a visible challenge afterward.
+        await begin_captcha_attempt(agent, fresh=True)
         with suppress(Exception):
             await payment_btn.scroll_into_view_if_needed(timeout=2000)
 
@@ -1735,6 +1744,7 @@ class EpicGames:
         url = promotion.url
         logger.info("🚀 Triggering Instant Checkout Flow...")
         agent = AgentV(page=page, agent_config=settings)
+        install_captcha_request_tracking(agent)
         deadline = time.monotonic() + max(timeout_ms, 0) / 1000
 
         def remaining_ms(limit_ms: int) -> int:
@@ -1800,7 +1810,7 @@ class EpicGames:
                     4,
                     await payment_btn.text_content(),
                 )
-                click_progressed = await self._submit_place_order(payment_btn, url)
+                click_progressed = await self._submit_place_order(payment_btn, url, agent)
                 if not click_progressed:
                     logger.warning(
                         "Place Order submission produced no immediate progress; falling back to checkout probes. {}",
@@ -2050,12 +2060,16 @@ class EpicGames:
                 await self._empty_cart(self.page)
 
                 agent = AgentV(page=self.page, agent_config=settings)
+                install_captcha_request_tracking(agent)
                 await self.page.click("//button//span[text()='Check Out']")
                 await self._agree_license(self.page)
 
                 logger.debug("Move to webPurchaseContainer iframe")
                 wpc, payment_btn = await self._active_purchase_container(self.page)
                 logger.debug("Click payment button")
+                # The UK confirmation click can immediately open hCaptcha. Register this
+                # checkout attempt before sending the click.
+                await begin_captcha_attempt(agent, fresh=True)
                 await self._uk_confirm_order(wpc)
                 challenge_signal = await wait_for_challenge_signal(
                     agent,

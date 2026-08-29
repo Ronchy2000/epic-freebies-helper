@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import cv2
 import numpy as np
-from hcaptcha_challenger.models import PointCoordinate, SpatialPath
+from hcaptcha_challenger.models import CaptchaResponse, PointCoordinate, SpatialPath
 
 import extensions.hcaptcha_adapter as hcaptcha_adapter
 from extensions.numbered_line_solver import NumberedDragSolution
@@ -12,11 +12,13 @@ from extensions.hcaptcha_adapter import (
     _decode_entity_contour,
     _detect_clickable_grid_bounds,
     _detect_task_canvas_origin,
+    _handle_checkcaptcha_response,
     _is_line_completion_question,
     _match_outline_contours,
     _point_answer_validation_error,
-    _queue_empty_checkcaptcha_response,
     _select_line_gap_markers,
+    begin_captcha_attempt,
+    end_captcha_attempt,
 )
 
 
@@ -228,49 +230,99 @@ def test_line_path_uses_numbered_circle_target_for_source_three(monkeypatch, tmp
     assert paths[0].end_point.model_dump() == {"x": 520, "y": 410}
 
 
-def test_empty_checkcaptcha_response_is_queued_after_grace_period():
-    class Response:
-        url = "https://api.hcaptcha.com/checkcaptcha/example"
-        status = 200
+class _CaptchaPage:
+    def __init__(self):
+        self.request_handler = None
 
-        @staticmethod
-        async def body():
-            return b""
+    def on(self, event, handler):
+        if event == "request":
+            self.request_handler = handler
 
+
+class _CaptchaRequest:
+    def __init__(self, url):
+        self.url = url
+
+
+class _CaptchaResponse:
+    status = 200
+
+    def __init__(self, request, body):
+        self.request = request
+        self.url = request.url
+        self._body = body
+
+    async def body(self):
+        return self._body
+
+
+def test_late_checkcaptcha_response_from_previous_attempt_is_ignored():
     async def scenario():
-        agent = SimpleNamespace(_captcha_response_queue=asyncio.Queue())
-        handled = await _queue_empty_checkcaptcha_response(agent, Response(), grace_seconds=0)
+        page = _CaptchaPage()
+        agent = SimpleNamespace(page=page, _captcha_response_queue=asyncio.Queue())
+
+        first_generation = await begin_captcha_attempt(agent)
+        old_request = _CaptchaRequest("https://api.hcaptcha.com/checkcaptcha/old")
+        page.request_handler(old_request)
+        await end_captcha_attempt(agent)
+
+        # Avoid waiting for the production grace period in this focused state-machine test.
+        agent._epic_captcha_attempt_finished_at = 0
+        second_generation = await begin_captcha_attempt(agent)
+        new_request = _CaptchaRequest("https://api.hcaptcha.com/checkcaptcha/new")
+        page.request_handler(new_request)
+
+        await _handle_checkcaptcha_response(agent, _CaptchaResponse(old_request, b'{"pass": true}'))
+        assert agent._captcha_response_queue.empty()
+
+        await _handle_checkcaptcha_response(agent, _CaptchaResponse(new_request, b'{"pass": true}'))
+        queued = await agent._captcha_response_queue.get()
+        await end_captcha_attempt(agent)
+        return first_generation, second_generation, queued
+
+    first_generation, second_generation, queued = asyncio.run(scenario())
+
+    assert second_generation > first_generation
+    assert queued.is_pass is True
+
+
+def test_checkcaptcha_empty_response_does_not_discard_queued_pass():
+    async def scenario():
+        page = _CaptchaPage()
+        agent = SimpleNamespace(page=page, _captcha_response_queue=asyncio.Queue())
+        await begin_captcha_attempt(agent)
+        request = _CaptchaRequest("https://api.hcaptcha.com/checkcaptcha/example")
+        page.request_handler(request)
+        agent._captcha_response_queue.put_nowait(CaptchaResponse.model_validate({"pass": True}))
+        await _handle_checkcaptcha_response(agent, _CaptchaResponse(request, b""))
         queued = await asyncio.wait_for(agent._captcha_response_queue.get(), timeout=0.1)
-        return handled, queued
+        await end_captcha_attempt(agent)
+        return queued
 
-    handled, queued = asyncio.run(scenario())
+    queued = asyncio.run(scenario())
 
-    assert handled is True
-    assert queued.is_pass is False
-    assert queued.error == "empty_checkcaptcha_response"
+    assert queued.is_pass is True
 
 
-def test_nonempty_checkcaptcha_response_cancels_pending_failure():
-    class EmptyResponse:
-        url = "https://api.hcaptcha.com/checkcaptcha/example"
-        status = 200
-
-        @staticmethod
-        async def body():
-            return b""
-
-    class ValidResponse(EmptyResponse):
-        @staticmethod
-        async def body():
-            return b'{"pass": true}'
-
+def test_checkcaptcha_pass_supersedes_delayed_failure():
     async def scenario():
-        agent = SimpleNamespace(_captcha_response_queue=asyncio.Queue())
-        assert await _queue_empty_checkcaptcha_response(agent, EmptyResponse(), grace_seconds=0.01)
-        assert not await _queue_empty_checkcaptcha_response(agent, ValidResponse())
-        await asyncio.sleep(0.02)
-        return agent._captcha_response_queue.empty()
+        page = _CaptchaPage()
+        agent = SimpleNamespace(page=page, _captcha_response_queue=asyncio.Queue())
+        await begin_captcha_attempt(agent)
 
-    assert asyncio.run(scenario()) is True
-    _detect_clickable_grid_bounds,
-    _point_answer_validation_error,
+        empty_request = _CaptchaRequest("https://api.hcaptcha.com/checkcaptcha/empty")
+        pass_request = _CaptchaRequest("https://api.hcaptcha.com/checkcaptcha/pass")
+        page.request_handler(empty_request)
+        await _handle_checkcaptcha_response(agent, _CaptchaResponse(empty_request, b""))
+        page.request_handler(pass_request)
+        await _handle_checkcaptcha_response(
+            agent, _CaptchaResponse(pass_request, b'{"pass": true}')
+        )
+        queued = await asyncio.wait_for(agent._captcha_response_queue.get(), timeout=0.1)
+        await end_captcha_attempt(agent)
+        return queued, agent._captcha_response_queue.empty()
+
+    queued, queue_empty = asyncio.run(scenario())
+
+    assert queued.is_pass is True
+    assert queue_empty is True
