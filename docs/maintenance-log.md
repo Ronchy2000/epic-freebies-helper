@@ -1426,3 +1426,11 @@
 - 改动文件：`app/services/epic_authorization_service.py`。
 - 处理结果：密码提交恢复直接尝试点击；点击异常时检查 challenge/checkbox，若未出现则结束当前验证码窗口并在有界时间内重试，不再仅因 `is_enabled()` 为 false 退出认证。
 - 验证边界：修复需要新的 Actions 运行验证；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 恢复密码页首次点击并扩大 iframe 启动期识别
+
+- 线上验证：Actions run `33231906339` 在密码页连续 30 秒未发现 `#sign-in` 可见，未进入 hCaptcha；对照上游成功 run `32457261253`，上游是在点击等待超时后进入 hCaptcha 求解。
+- 根因判断：Epic 密码页在 hCaptcha iframe 启动期间可能暂时没有可见 `#sign-in`，而 iframe 内部 `.challenge-view` 也尚未渲染；仅轮询内部节点会错过原本应由一次 locator click 触发的状态转换。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：密码页首次即使按钮暂不可见也执行一次有界 locator click；点击异常后继续检查 challenge/checkbox，再进行有限重试。hCaptcha 检测增加 iframe 本身可见但内部节点尚未完成渲染的启动期兜底。
+- 验证边界：需要新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。

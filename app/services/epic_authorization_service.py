@@ -426,6 +426,13 @@ class EpicAuthorization:
                 if await challenge_view.is_visible(timeout=500):
                     return True
 
+            # During iframe startup the challenge view may not exist yet, while the iframe is
+            # already visible and the sign-in button has been replaced.
+            with suppress(Exception):
+                frame_element = await frame.frame_element()
+                if await frame_element.is_visible(timeout=300):
+                    return True
+
         return False
 
     async def _has_visible_hcaptcha_checkbox(self) -> bool:
@@ -437,6 +444,11 @@ class EpicAuthorization:
             with suppress(Exception):
                 checkbox = frame.locator("//div[@id='checkbox']")
                 if await checkbox.is_visible(timeout=500):
+                    return True
+
+            with suppress(Exception):
+                frame_element = await frame.frame_element()
+                if await frame_element.is_visible(timeout=300):
                     return True
 
         return False
@@ -1055,6 +1067,7 @@ class EpicAuthorization:
         sign_in_button = self.page.locator("#sign-in")
 
         checkbox_activated = False
+        click_attempted = False
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if await self._has_visible_hcaptcha_challenge():
@@ -1071,7 +1084,11 @@ class EpicAuthorization:
             with suppress(Exception):
                 button_visible = await sign_in_button.is_visible()
 
-            if button_visible:
+            # The button can be temporarily absent while Epic mounts the hCaptcha widget. A
+            # bounded locator click preserves the upstream behavior that lets this transition
+            # itself expose the challenge.
+            if button_visible or not click_attempted:
+                click_attempted = True
                 # Epic can return the initial getcaptcha payload while the click is still being
                 # handled. Open the captcha generation before submitting the form.
                 await begin_captcha_attempt(agent, fresh=True)
