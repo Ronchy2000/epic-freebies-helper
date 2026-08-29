@@ -1466,3 +1466,11 @@
 - 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
 - 处理结果：仅在首次提交且尚未处理任何验证码时，登录结果等待允许用可见 hCaptcha widget 作为启动期兜底；进入 solver 后恢复窄 challenge 检测，避免成功后的 checkbox 被重复消费。提交函数仍保留一次真实点击和有界重试。
 - 验证边界：需新的 Actions run 确认登录、Store session 和逐款入库证据；按仓库规则不执行测试。
+
+### 2026-08-29 允许验证码成功后恢复未发出登录 POST 的密码提交
+
+- 线上验证：Actions run `33233714640` 已出现 `Challenge success`，但随后以 `Epic login submission did not return before a captcha retry` 失败；失败截图仍显示密码页和可用的 `Sign in` 按钮，未进入登录成功或 Store session。
+- 根因确认：首次密码点击在该时序下只启动了 hCaptcha，没有产生对应的 `/id/api/login` POST；验证码成功后强制等待该 POST 响应，导致本应再次点击密码提交的恢复路径被提前中止。成功后的残留 hCaptcha widget 也不应阻塞密码表单重提交。
+- 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
+- 处理结果：验证码成功后的登录响应等待允许“无匹配 POST”并回到页面状态机；若密码页仍在，则重新提交密码表单。严格的响应等待仍保留在邮箱步骤等必须确认前置提交结果的路径；重提交只把窄 challenge 视为活动验证码。
+- 验证边界：需新的 Actions run 确认重新提交后登录、Store session 和逐款入库证据；按仓库规则不执行测试。

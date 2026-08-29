@@ -125,9 +125,18 @@ class EpicAuthorization:
         for result in retained:
             self._login_error_signal.put_nowait(result)
 
-    async def _await_submission_before_retry(self, generation: int) -> dict:
+    async def _await_submission_before_retry(
+        self, generation: int, *, allow_missing: bool = False
+    ) -> dict:
         record = await self._wait_for_login_submission_response(generation)
         if record is None:
+            if allow_missing:
+                logger.debug(
+                    "Epic login captcha submit had no matching login POST; continuing with "
+                    "page-state recovery | generation={}",
+                    generation,
+                )
+                return {}
             raise EpicLoginRestartRequiredError(
                 "Epic login submission did not return before a captcha retry"
             )
@@ -980,7 +989,9 @@ class EpicAuthorization:
 
                 await self.page.wait_for_timeout(500)
                 if last_submission == "totp" and self._is_mfa_page():
-                    response = await self._await_submission_before_retry(submission_generation)
+                    response = await self._await_submission_before_retry(
+                        submission_generation, allow_missing=True
+                    )
                     error_code = response.get("errorCode", "")
                     if self._is_captcha_rejected_error(error_code):
                         logger.warning(
@@ -994,7 +1005,9 @@ class EpicAuthorization:
                         await submit_fresh_totp("two_factor_required")
                 elif last_submission == "password":
                     if submission_generation:
-                        response = await self._await_submission_before_retry(submission_generation)
+                        response = await self._await_submission_before_retry(
+                            submission_generation, allow_missing=True
+                        )
                         error_code = response.get("errorCode", "")
                         if self._is_two_factor_required_error(error_code):
                             continue
@@ -1077,10 +1090,7 @@ class EpicAuthorization:
             while time.monotonic() < deadline:
                 if self._is_mfa_page() or "/id/login" not in self.page.url.lower():
                     return None
-                if (
-                    await self._has_visible_hcaptcha_challenge()
-                    or await self._has_visible_hcaptcha_widget()
-                ):
+                if await self._has_visible_hcaptcha_challenge():
                     return None
 
                 current_button = await self._visible_password_submit_button()
