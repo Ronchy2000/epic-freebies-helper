@@ -1418,3 +1418,11 @@
 - 改动文件：`app/services/epic_authorization_service.py`。
 - 处理结果：密码提交和密码重提交改为轮询密码页、challenge、checkbox 和登录按钮；按钮暂不可见时先激活已出现的 checkbox，challenge 可见后交给验证码流程；仅在页面离开登录步骤或超出有界等待时失败。
 - 验证边界：新的 Actions 运行需要确认该回归修复；继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 兼容 Epic 密码按钮的 disabled 状态
+
+- 线上验证：Actions run `33231906339` 已进入密码页，但连续 30 秒报告 `Epic sign-in button remained disabled without an active hCaptcha challenge`；仍未进入验证码、Store session 或领取流程。
+- 根因判断：Epic 登录按钮的 DOM enabled 状态不能作为提交前置条件；上游成功运行采用直接点击，再由点击过程中的替换/超时进入 hCaptcha 流程。Camoufox/当前登录页可能把可点击或即将替换的按钮报告为 disabled，导致新状态机在点击之前提前终止。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：密码提交恢复直接尝试点击；点击异常时检查 challenge/checkbox，若未出现则结束当前验证码窗口并在有界时间内重试，不再仅因 `is_enabled()` 为 false 退出认证。
+- 验证边界：修复需要新的 Actions 运行验证；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。

@@ -1071,17 +1071,26 @@ class EpicAuthorization:
             with suppress(Exception):
                 button_visible = await sign_in_button.is_visible()
 
-            if button_visible and await sign_in_button.is_enabled():
+            if button_visible:
                 # Epic can return the initial getcaptcha payload while the click is still being
                 # handled. Open the captcha generation before submitting the form.
                 await begin_captcha_attempt(agent, fresh=True)
                 generation = self._begin_login_submission()
                 try:
                     await sign_in_button.click(timeout=5000, no_wait_after=True)
-                except PlaywrightTimeoutError:
+                except PlaywrightError as err:
                     if await self._has_visible_hcaptcha_challenge() or self._is_mfa_page():
                         return generation
-                    raise
+                    with suppress(Exception):
+                        if await self._has_visible_hcaptcha_checkbox():
+                            return generation
+                    await prepare_captcha_retry(agent)
+                    logger.debug(
+                        "Epic password sign-in click was not actionable yet; retrying the same bounded login step | error_type={}",
+                        type(err).__name__,
+                    )
+                    await self.page.wait_for_timeout(500)
+                    continue
                 return generation
 
             if not checkbox_activated and await self._has_visible_hcaptcha_checkbox():
