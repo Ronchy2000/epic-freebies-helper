@@ -1006,10 +1006,22 @@ class EpicAuthorization:
 
         try:
             await password_input.wait_for(state="visible", timeout=5000)
-            if self._is_mfa_page() or "/id/login" not in self.page.url.lower():
-                return None
-            await sign_in_button.wait_for(state="visible", timeout=5000)
-            await expect(sign_in_button).to_be_enabled(timeout=5000)
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                if self._is_mfa_page() or "/id/login" not in self.page.url.lower():
+                    return None
+                if await self._has_visible_hcaptcha_challenge():
+                    return None
+
+                button_visible = False
+                with suppress(Exception):
+                    button_visible = await sign_in_button.is_visible()
+                if button_visible:
+                    await expect(sign_in_button).to_be_enabled(timeout=1000)
+                    break
+                await self.page.wait_for_timeout(250)
+            else:
+                raise PlaywrightTimeoutError("Timed out waiting for Epic password submit state")
 
             if not await password_input.input_value(timeout=1000):
                 await password_input.fill(settings.EPIC_PASSWORD.get_secret_value())
@@ -1039,17 +1051,27 @@ class EpicAuthorization:
             )
             return None
 
+        password_input = self.page.locator("#password")
         sign_in_button = self.page.locator("#sign-in")
-        await sign_in_button.wait_for(state="visible", timeout=10000)
 
         checkbox_activated = False
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if await self._has_visible_hcaptcha_challenge():
                 logger.warning("Login hCaptcha appeared before the sign-in submission completed")
                 return None
 
-            if await sign_in_button.is_enabled():
+            password_visible = False
+            with suppress(Exception):
+                password_visible = await password_input.is_visible()
+            if not password_visible:
+                return None
+
+            button_visible = False
+            with suppress(Exception):
+                button_visible = await sign_in_button.is_visible()
+
+            if button_visible and await sign_in_button.is_enabled():
                 # Epic can return the initial getcaptcha payload while the click is still being
                 # handled. Open the captcha generation before submitting the form.
                 await begin_captcha_attempt(agent, fresh=True)

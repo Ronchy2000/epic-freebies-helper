@@ -1410,3 +1410,11 @@
 - 改动文件：`app/extensions/hcaptcha_adapter.py`、`app/services/epic_authorization_service.py`、`app/services/epic_games_service.py`。
 - 处理结果：`begin_captcha_attempt(..., fresh=True)` 为新点击立即轮换 generation 和响应队列；同一动作内由等待器继续复用当前窗口。密码重提交、邮箱 Continue、MFA、Place Order 和购物车最终确认使用 fresh 窗口；移除登录/即时结账/进入购物车结账页时的无动作预启动。
 - 验证边界：已执行编译、hCaptcha 协议契约和 diff 检查；按仓库规则未执行测试，仍需新的 Actions 运行确认登录、Store session 与逐款入库。
+
+### 2026-08-29 修正密码页验证码替换登录按钮的等待竞态
+
+- 线上验证：修复分支 Actions run `33231697845` 已完成 runner、依赖、协议检查和浏览器安装，但在认证阶段两次报 `TimeoutError`，卡在等待 `#sign-in` 可见；没有进入验证码求解、Store session 或领取流程。
+- 根因确认：邮箱阶段已推进到密码页，但 Epic 在密码提交前可能先用 hCaptcha checkbox 替换或延迟渲染 `#sign-in`；代码在 `wait_for(#sign-in)` 阶段直接失败，未进入后续 challenge 检查。上游成功 run 曾在同一位置通过点击超时分支进入验证码处理，说明这是新增状态机的回归。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：密码提交和密码重提交改为轮询密码页、challenge、checkbox 和登录按钮；按钮暂不可见时先激活已出现的 checkbox，challenge 可见后交给验证码流程；仅在页面离开登录步骤或超出有界等待时失败。
+- 验证边界：新的 Actions 运行需要确认该回归修复；继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
