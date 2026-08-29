@@ -35,6 +35,8 @@ URL_ORDER_HISTORY = "https://www.epicgames.com/account/v2/payment/ajaxGetOrderHi
 MAX_LOGIN_CAPTCHA_ATTEMPTS = 3
 MAX_LOGIN_CAPTCHA_ROUNDS = 6
 LOGIN_SUBMISSION_RESPONSE_TIMEOUT_SECONDS = 15.0
+MAX_PASSWORD_RESUBMISSION_ATTEMPTS = 3
+PASSWORD_RESUBMISSION_RETRY_DELAY_SECONDS = 20.0
 
 
 class EpicAuthenticationFatalError(RuntimeError):
@@ -805,6 +807,8 @@ class EpicAuthorization:
         captcha_attempts = 0
         total_captcha_attempts = 0
         captcha_rejections = 0
+        password_resubmission_attempts = 0
+        last_password_resubmission_at: float | None = None
 
         def extend_deadline(reason: str, seconds: int = 120) -> None:
             nonlocal deadline
@@ -930,6 +934,34 @@ class EpicAuthorization:
                     )
                 continue
 
+            if (
+                last_password_resubmission_at is not None
+                and password_resubmission_attempts > 0
+                and time.monotonic() - last_password_resubmission_at
+                >= PASSWORD_RESUBMISSION_RETRY_DELAY_SECONDS
+                and not self._is_mfa_page()
+                and "/id/login" in self.page.url.lower()
+            ):
+                if password_resubmission_attempts >= MAX_PASSWORD_RESUBMISSION_ATTEMPTS:
+                    raise EpicLoginRestartRequiredError(
+                        "Epic password form did not advance after bounded resubmission attempts"
+                    )
+                submitted = await self._resubmit_password_form(agent)
+                if not submitted:
+                    raise EpicLoginRestartRequiredError(
+                        "Epic password form could not be resubmitted after captcha"
+                    )
+                password_resubmission_attempts += 1
+                submission_generation = submitted
+                last_password_resubmission_at = time.monotonic()
+                logger.info(
+                    "Retried Epic password form after authentication remained on the login page | "
+                    "attempt={}/{}",
+                    password_resubmission_attempts,
+                    MAX_PASSWORD_RESUBMISSION_ATTEMPTS,
+                )
+                continue
+
             captcha_visible = await self._has_visible_hcaptcha_challenge()
             if not captcha_visible and total_captcha_attempts == 0 and submission_generation:
                 # The first submit can expose only the iframe container; let the solver inspect
@@ -1021,7 +1053,9 @@ class EpicAuthorization:
 
                     submitted = await self._resubmit_password_form(agent)
                     if submitted:
+                        password_resubmission_attempts += 1
                         submission_generation = submitted
+                        last_password_resubmission_at = time.monotonic()
                         captcha_attempts = 0
                         captcha_rejections = 0
                     elif (

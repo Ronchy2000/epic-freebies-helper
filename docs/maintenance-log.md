@@ -1474,3 +1474,11 @@
 - 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
 - 处理结果：验证码成功后的登录响应等待允许“无匹配 POST”并回到页面状态机；若密码页仍在，则重新提交密码表单。严格的响应等待仍保留在邮箱步骤等必须确认前置提交结果的路径；重提交只把窄 challenge 视为活动验证码。
 - 验证边界：需新的 Actions run 确认重新提交后登录、Store session 和逐款入库证据；按仓库规则不执行测试。
+
+### 2026-08-29 为密码重提交增加有界恢复窗口
+
+- 线上验证：Actions run `33234240143` 已记录 `Resubmitted Epic password form after login hCaptcha`，但在密码页继续等待约 6 分钟后超时；没有登录成功、Store session 或入库证据。
+- 根因判断：Epic 在 hCaptcha 成功后可能保留密码页且点击不立即触发可观察的登录结果；仅重提交一次后等待整个认证超时，会把可恢复的短暂 UI/网络状态拖成整次失败。
+- 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
+- 处理结果：密码重提交后设置短暂观察窗口；若仍停留在登录页，则最多进行 3 次有界重提交，之后交给外层认证尝试重建页面，不再无限等待。每次重提交仍轮换独立验证码和登录提交 generation。
+- 验证边界：需新的 Actions run 确认重提交后登录、Store session 和逐款入库证据；按仓库规则不执行测试。
