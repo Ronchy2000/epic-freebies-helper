@@ -1458,3 +1458,11 @@
 - 改动文件：`app/services/epic_authorization_service.py`。
 - 处理结果：密码提交优先使用 `#sign-in`，并兼容 `button/input[type=submit]` 和精确名称 `Sign in` 的按钮；重提交等待也使用同一选择器集合，仍保留有限点击和 challenge 状态检查。
 - 验证边界：需要新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 修正首次提交后 hCaptcha iframe 的启动期识别
+
+- 线上验证：Actions run `33232841765` 已推进到密码页，日志显示 `Epic email login step advanced to password`，但随后两次认证等待均超时；没有出现 `Challenge success`、`Login success`、Store session 或入库证据。
+- 根因判断：密码提交后 hCaptcha 可能先挂载可见 iframe 容器，内部 challenge view 尚未完成渲染；登录结果等待只检查窄 challenge 节点，因此没有及时把该提交交给 solver。直接在提交函数中使用宽 widget 检测又会把成功后的残留 checkbox 当成新挑战。
+- 改动文件：`app/services/epic_authorization_service.py`、`docs/maintenance-log.md`。
+- 处理结果：仅在首次提交且尚未处理任何验证码时，登录结果等待允许用可见 hCaptcha widget 作为启动期兜底；进入 solver 后恢复窄 challenge 检测，避免成功后的 checkbox 被重复消费。提交函数仍保留一次真实点击和有界重试。
+- 验证边界：需新的 Actions run 确认登录、Store session 和逐款入库证据；按仓库规则不执行测试。

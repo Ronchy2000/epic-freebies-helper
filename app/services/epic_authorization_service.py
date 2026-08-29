@@ -921,7 +921,13 @@ class EpicAuthorization:
                     )
                 continue
 
-            if await self._has_visible_hcaptcha_challenge():
+            captcha_visible = await self._has_visible_hcaptcha_challenge()
+            if not captcha_visible and total_captcha_attempts == 0 and submission_generation:
+                # The first submit can expose only the iframe container; let the solver inspect
+                # its payload before the inner challenge view finishes rendering.
+                captcha_visible = await self._has_visible_hcaptcha_widget()
+
+            if captcha_visible:
                 captcha_attempts += 1
                 total_captcha_attempts += 1
                 if (
@@ -1108,10 +1114,7 @@ class EpicAuthorization:
             return None
 
     async def _submit_login_or_accept_challenge(self, agent: AgentV) -> int | None:
-        if (
-            await self._has_visible_hcaptcha_challenge()
-            or await self._has_visible_hcaptcha_widget()
-        ):
+        if await self._has_visible_hcaptcha_challenge():
             logger.warning(
                 "Login hCaptcha appeared before the sign-in button click; entering solve loop"
             )
@@ -1124,10 +1127,7 @@ class EpicAuthorization:
         click_attempted = False
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            if (
-                await self._has_visible_hcaptcha_challenge()
-                or await self._has_visible_hcaptcha_widget()
-            ):
+            if await self._has_visible_hcaptcha_challenge():
                 logger.warning("Login hCaptcha appeared before the sign-in submission completed")
                 return None
 
@@ -1176,7 +1176,7 @@ class EpicAuthorization:
             await self.page.wait_for_timeout(250)
 
         raise EpicLoginRestartRequiredError(
-            "Epic sign-in button remained disabled without an active hCaptcha challenge"
+            "Epic sign-in button did not expose a recoverable submit state"
         )
 
     async def _get_login_status(
