@@ -453,6 +453,39 @@ class EpicAuthorization:
 
         return False
 
+    async def _has_visible_hcaptcha_widget(self) -> bool:
+        """Detect the widget during submit transitions before its inner view is ready."""
+        for frame in self.page.frames:
+            if "hcaptcha" not in (frame.url or "").lower():
+                continue
+            with suppress(Exception):
+                frame_element = await frame.frame_element()
+                visible = await frame_element.evaluate(
+                    """
+                    (element) => {
+                      const rect = element.getBoundingClientRect();
+                      const style = window.getComputedStyle(element);
+                      return rect.width > 0 && rect.height > 0 &&
+                        style.visibility !== 'hidden' &&
+                        style.display !== 'none' &&
+                        style.opacity !== '0';
+                    }
+                    """
+                )
+                if visible:
+                    return True
+
+        body = (await self._page_body_text()).lower()
+        return any(
+            marker in body
+            for marker in (
+                "one more step",
+                "please complete a security check",
+                "verify you are human",
+                "i am human",
+            )
+        )
+
     async def _wait_for_login_form(self, point_url: str) -> None:
         deadline = time.monotonic() + 45
         recovery_attempts = 0
@@ -1038,7 +1071,10 @@ class EpicAuthorization:
             while time.monotonic() < deadline:
                 if self._is_mfa_page() or "/id/login" not in self.page.url.lower():
                     return None
-                if await self._has_visible_hcaptcha_challenge():
+                if (
+                    await self._has_visible_hcaptcha_challenge()
+                    or await self._has_visible_hcaptcha_widget()
+                ):
                     return None
 
                 current_button = await self._visible_password_submit_button()
@@ -1072,7 +1108,10 @@ class EpicAuthorization:
             return None
 
     async def _submit_login_or_accept_challenge(self, agent: AgentV) -> int | None:
-        if await self._has_visible_hcaptcha_challenge():
+        if (
+            await self._has_visible_hcaptcha_challenge()
+            or await self._has_visible_hcaptcha_widget()
+        ):
             logger.warning(
                 "Login hCaptcha appeared before the sign-in button click; entering solve loop"
             )
@@ -1085,7 +1124,10 @@ class EpicAuthorization:
         click_attempted = False
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            if await self._has_visible_hcaptcha_challenge():
+            if (
+                await self._has_visible_hcaptcha_challenge()
+                or await self._has_visible_hcaptcha_widget()
+            ):
                 logger.warning("Login hCaptcha appeared before the sign-in submission completed")
                 return None
 
@@ -1110,7 +1152,11 @@ class EpicAuthorization:
                 try:
                     await (current_button or sign_in_button).click(timeout=5000, no_wait_after=True)
                 except PlaywrightError as err:
-                    if await self._has_visible_hcaptcha_challenge() or self._is_mfa_page():
+                    if (
+                        await self._has_visible_hcaptcha_challenge()
+                        or await self._has_visible_hcaptcha_widget()
+                        or self._is_mfa_page()
+                    ):
                         return generation
                     with suppress(Exception):
                         if await self._has_visible_hcaptcha_checkbox():

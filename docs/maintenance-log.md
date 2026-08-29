@@ -1443,6 +1443,14 @@
 - 处理结果：仅当 `GITHUB_ACTIONS=true` 时给登录入口追加 `sessionInvalidated=true`；本地/自托管不追加，保留持久登录能力。
 - 验证边界：需要一次新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
 
+### 2026-08-29 恢复提交过渡期的宽 hCaptcha 检测
+
+- 线上验证：Actions run `33232453279` 的首次密码点击已执行但超时，之后没有进入验证码；仅按 `frame=challenge` 和内部 `.challenge-view` 检查未捕获上游成功运行中已出现的 hCaptcha 过渡状态。
+- 根因判断：hCaptcha 在登录按钮被替换的过渡期可能只有可见 iframe 容器或安全提示文本，内部 challenge view 尚未完成渲染。登录结果阶段不能使用宽检测，因为 checkbox iframe 会在成功后继续挂载。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：新增宽 widget 检测，仅用于密码提交/点击异常的分流；登录结果阶段继续使用窄 challenge 检测，避免重复消费已经成功的 checkbox。
+- 验证边界：需要新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
 ### 2026-08-29 兼容 Epic 密码页提交控件变体
 
 - 线上验证：Actions run `33232262550` 已实际执行密码页点击，但 `#sign-in` 在 5 秒点击窗口内不可操作，之后页面仍未出现可识别 challenge，最终有界认证失败；没有 Store session 或入库证据。
