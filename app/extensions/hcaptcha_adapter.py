@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import itertools
+import json
+import time
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -9,7 +11,12 @@ import cv2
 import httpx
 import numpy as np
 from hcaptcha_challenger.agent.challenger import AgentV, RoboticArm
-from hcaptcha_challenger.models import CaptchaResponse, PointCoordinate, SpatialPath
+from hcaptcha_challenger.models import (
+    CaptchaResponse,
+    ChallengeSignal,
+    PointCoordinate,
+    SpatialPath,
+)
 from loguru import logger
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
@@ -17,6 +24,15 @@ from extensions.numbered_line_solver import solve_numbered_line_drag
 
 
 _EMPTY_CHECKCAPTCHA_GRACE_SECONDS = 5.0
+_CAPTCHA_RESPONSE_LOCK_ATTR = "_epic_captcha_response_lock"
+_CAPTCHA_RESPONSE_GENERATION_ATTR = "_epic_captcha_response_generation"
+_EMPTY_RESPONSE_TASK_ATTR = "_epic_empty_response_task"
+_CAPTCHA_ATTEMPT_ACTIVE_ATTR = "_epic_captcha_attempt_active"
+_CAPTCHA_ATTEMPT_RUN_LOCK_ATTR = "_epic_captcha_attempt_run_lock"
+_CAPTCHA_ATTEMPT_FINISHED_AT_ATTR = "_epic_captcha_attempt_finished_at"
+_CAPTCHA_ATTEMPT_STARTED_AT_ATTR = "_epic_captcha_attempt_started_at"
+_CAPTCHA_REQUEST_GENERATIONS_ATTR = "_epic_captcha_request_generations"
+_CAPTCHA_REQUEST_LISTENER_ATTR = "_epic_captcha_request_listener"
 
 
 def _longest_contiguous_run(values: np.ndarray) -> list[int]:
@@ -616,44 +632,302 @@ def _build_drag_prompt(user_prompt: str, *, source_points: list[tuple[int, int]]
 
 
 def _cancel_pending_empty_response(agent: Any) -> None:
-    pending = getattr(agent, "_epic_empty_response_task", None)
+    pending = getattr(agent, _EMPTY_RESPONSE_TASK_ATTR, None)
     if pending is not None and not pending.done():
         pending.cancel()
-    agent._epic_empty_response_task = None
+    setattr(agent, _EMPTY_RESPONSE_TASK_ATTR, None)
 
 
-async def _queue_empty_checkcaptcha_response(
-    agent: Any, response: Any, *, grace_seconds: float = _EMPTY_CHECKCAPTCHA_GRACE_SECONDS
-) -> bool:
-    if "/checkcaptcha/" not in str(getattr(response, "url", "")):
+def _captcha_response_lock(agent: Any) -> asyncio.Lock:
+    lock = getattr(agent, _CAPTCHA_RESPONSE_LOCK_ATTR, None)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(agent, _CAPTCHA_RESPONSE_LOCK_ATTR, lock)
+    return lock
+
+
+def _captcha_attempt_run_lock(agent: Any) -> asyncio.Lock:
+    lock = getattr(agent, _CAPTCHA_ATTEMPT_RUN_LOCK_ATTR, None)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(agent, _CAPTCHA_ATTEMPT_RUN_LOCK_ATTR, lock)
+    return lock
+
+
+def _request_identity(request: Any) -> Any:
+    """Use Playwright's implementation object so request/response wrappers match."""
+    return getattr(request, "_impl_obj", request)
+
+
+def _captcha_request_generations(agent: Any) -> dict[int, tuple[Any, int]]:
+    generations = getattr(agent, _CAPTCHA_REQUEST_GENERATIONS_ATTR, None)
+    if generations is None:
+        generations = {}
+        setattr(agent, _CAPTCHA_REQUEST_GENERATIONS_ATTR, generations)
+    return generations
+
+
+def _remember_captcha_request(agent: Any, request: Any) -> None:
+    url = str(getattr(request, "url", ""))
+    if "/checkcaptcha/" not in url and "/getcaptcha/" not in url:
+        return
+
+    identity = _request_identity(request)
+    generation = (
+        int(getattr(agent, _CAPTCHA_RESPONSE_GENERATION_ATTR, 0))
+        if getattr(agent, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False)
+        else 0
+    )
+    generations = _captcha_request_generations(agent)
+    generations[id(identity)] = (identity, generation)
+    # Requests that never receive a response must not grow this map indefinitely.
+    while len(generations) > 256:
+        generations.pop(next(iter(generations)))
+
+
+def _install_captcha_request_tracking(agent: Any) -> None:
+    if getattr(agent, _CAPTCHA_REQUEST_LISTENER_ATTR, None) is not None:
+        return
+
+    page = getattr(agent, "page", None)
+    if page is None or not hasattr(page, "on"):
+        return
+
+    def on_request(request: Any) -> None:
+        _remember_captcha_request(agent, request)
+
+    page.on("request", on_request)
+    setattr(agent, _CAPTCHA_REQUEST_LISTENER_ATTR, on_request)
+
+
+def install_captcha_request_tracking(agent: Any) -> None:
+    """Start request tracking as soon as an AgentV is created."""
+    _install_captcha_request_tracking(agent)
+
+
+def _take_captcha_request_generation(agent: Any, response: Any) -> int | None:
+    """Return the request's generation, rejecting missing or reused request identities."""
+    request = getattr(response, "request", None)
+    if request is None:
+        # Small unit-test doubles may not expose Response.request. Real Playwright responses do.
+        return (
+            int(getattr(agent, _CAPTCHA_RESPONSE_GENERATION_ATTR, 0))
+            if getattr(agent, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False)
+            else None
+        )
+
+    identity = _request_identity(request)
+    entry = _captcha_request_generations(agent).pop(id(identity), None)
+    if entry is None or entry[0] is not identity:
+        return None
+    return entry[1]
+
+
+def _has_tracked_captcha_request(agent: Any, response: Any) -> bool:
+    request = getattr(response, "request", None)
+    if request is None:
         return False
-    body = await response.body()
-    if body and body.strip():
+    identity = _request_identity(request)
+    entry = _captcha_request_generations(agent).get(id(identity))
+    return entry is not None and entry[0] is identity
+
+
+def _is_current_captcha_response(agent: Any, response: Any) -> bool:
+    if not getattr(agent, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False):
+        return False
+    generation = _take_captcha_request_generation(agent, response)
+    return generation is not None and generation == int(
+        getattr(agent, _CAPTCHA_RESPONSE_GENERATION_ATTR, 0)
+    )
+
+
+def _drain_captcha_response_queue(
+    agent: Any, *, queue: Any | None = None, preserve_pass: bool = False
+) -> int:
+    queue = queue if queue is not None else getattr(agent, "_captcha_response_queue", None)
+    if queue is None:
+        return 0
+
+    retained = []
+    drained = 0
+    while not queue.empty():
+        with suppress(Exception):
+            response = queue.get_nowait()
+            drained += 1
+            if preserve_pass and getattr(response, "is_pass", False):
+                retained.append(response)
+
+    for response in retained:
+        queue.put_nowait(response)
+    return drained
+
+
+def _next_captcha_response_generation(agent: Any) -> int:
+    generation = int(getattr(agent, _CAPTCHA_RESPONSE_GENERATION_ATTR, 0)) + 1
+    setattr(agent, _CAPTCHA_RESPONSE_GENERATION_ATTR, generation)
+    return generation
+
+
+async def begin_captcha_attempt(agent: Any, *, fresh: bool = False) -> int:
+    """Open a response window, optionally rotating it for a new browser action."""
+    _install_captcha_request_tracking(agent)
+    if getattr(agent, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False) and not fresh:
+        return int(getattr(agent, _CAPTCHA_RESPONSE_GENERATION_ATTR, 0))
+
+    finished_at = float(getattr(agent, _CAPTCHA_ATTEMPT_FINISHED_AT_ATTR, 0.0))
+    remaining = _EMPTY_CHECKCAPTCHA_GRACE_SECONDS - (time.monotonic() - finished_at)
+    if finished_at and remaining > 0:
+        await asyncio.sleep(remaining)
+
+    async with _captcha_response_lock(agent):
+        if getattr(agent, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False) and not fresh:
+            return int(getattr(agent, _CAPTCHA_RESPONSE_GENERATION_ATTR, 0))
+
         _cancel_pending_empty_response(agent)
-        return False
+        _drain_captcha_response_queue(agent)
+        generation = _next_captcha_response_generation(agent)
+        # AgentV.wait_for_challenge() reads this attribute directly. Replacing the queue makes
+        # a response left by a timed-out attempt impossible to consume in the next one.
+        agent._captcha_response_queue = asyncio.Queue()
+        setattr(agent, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, True)
+        setattr(agent, _CAPTCHA_ATTEMPT_STARTED_AT_ATTR, time.monotonic())
+        return generation
 
-    _cancel_pending_empty_response(agent)
+
+async def end_captcha_attempt(agent: Any) -> int:
+    """Close a response window and quarantine all responses arriving after it."""
+    async with _captcha_response_lock(agent):
+        setattr(agent, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False)
+        _next_captcha_response_generation(agent)
+        _cancel_pending_empty_response(agent)
+        drained = _drain_captcha_response_queue(agent)
+        setattr(agent, _CAPTCHA_ATTEMPT_FINISHED_AT_ATTR, time.monotonic())
+        return drained
+
+
+async def prepare_captcha_retry(agent: Any) -> int:
+    """Close the current response window before a caller starts a bounded retry."""
+    return await end_captcha_attempt(agent)
+
+
+def _schedule_captcha_failure(
+    agent: Any,
+    captcha_response: CaptchaResponse,
+    *,
+    queue: Any,
+    generation: int,
+    grace_seconds: float,
+) -> None:
+    if queue is None:
+        return
 
     async def enqueue_failure_after_grace_period():
+        current_task = asyncio.current_task()
         try:
             await asyncio.sleep(grace_seconds)
-            if agent._captcha_response_queue.empty():
-                agent._captcha_response_queue.put_nowait(
-                    CaptchaResponse.model_validate(
-                        {"pass": False, "error": "empty_checkcaptcha_response"}
-                    )
-                )
+            async with _captcha_response_lock(agent):
+                if (
+                    not getattr(agent, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False)
+                    or generation != getattr(agent, _CAPTCHA_RESPONSE_GENERATION_ATTR, 0)
+                    or getattr(agent, "_captcha_response_queue", None) is not queue
+                    or not queue.empty()
+                ):
+                    return
+                queue.put_nowait(captcha_response)
         except asyncio.CancelledError:
             return
+        finally:
+            if getattr(agent, _EMPTY_RESPONSE_TASK_ATTR, None) is current_task:
+                setattr(agent, _EMPTY_RESPONSE_TASK_ATTR, None)
 
-    agent._epic_empty_response_task = asyncio.create_task(enqueue_failure_after_grace_period())
-    logger.warning(
-        "hCaptcha check returned an empty response; waiting {:.1f}s for the paired result | "
-        "status={}",
-        grace_seconds,
-        getattr(response, "status", "unknown"),
+    setattr(
+        agent, _EMPTY_RESPONSE_TASK_ATTR, asyncio.create_task(enqueue_failure_after_grace_period())
     )
-    return True
+
+
+async def _handle_checkcaptcha_response(agent: Any, response: Any) -> None:
+    """Serialize hCaptcha result handling so paired empty/non-empty responses cannot race."""
+    async with _captcha_response_lock(agent):
+        if not _is_current_captcha_response(agent, response):
+            logger.debug("Ignoring stale or untracked hCaptcha check response")
+            return
+
+        # Read the body while holding the same lock as queue mutation. Playwright dispatches
+        # response handlers concurrently; otherwise a later getcaptcha handler can clear the
+        # queue between body reads and the response classification below.
+        try:
+            body = await response.body()
+        except Exception as err:
+            logger.warning(
+                "Could not read hCaptcha check response; treating it as a bounded failure | "
+                "error_type={}",
+                type(err).__name__,
+            )
+            body = b""
+
+        queue = getattr(agent, "_captcha_response_queue", None)
+        generation = int(getattr(agent, _CAPTCHA_RESPONSE_GENERATION_ATTR, 0))
+        if queue is None:
+            return
+
+        if not body or not body.strip():
+            _cancel_pending_empty_response(agent)
+            # A pass response already waiting is authoritative; discard only stale failures.
+            _drain_captcha_response_queue(agent, preserve_pass=True)
+            _schedule_captcha_failure(
+                agent,
+                CaptchaResponse.model_validate(
+                    {"pass": False, "error": "empty_checkcaptcha_response"}
+                ),
+                queue=queue,
+                generation=generation,
+                grace_seconds=_EMPTY_CHECKCAPTCHA_GRACE_SECONDS,
+            )
+            logger.warning(
+                "hCaptcha check returned an empty response; waiting {:.1f}s for the paired result | "
+                "status={}",
+                _EMPTY_CHECKCAPTCHA_GRACE_SECONDS,
+                getattr(response, "status", "unknown"),
+            )
+            return
+
+        try:
+            metadata = json.loads(body)
+            captcha_response = CaptchaResponse.model_validate(metadata)
+        except Exception as err:
+            logger.warning(
+                "Could not parse hCaptcha check response; treating it as a bounded failure | "
+                "error_type={}",
+                type(err).__name__,
+            )
+            captcha_response = CaptchaResponse.model_validate(
+                {"pass": False, "error": "invalid_checkcaptcha_response"}
+            )
+
+        _cancel_pending_empty_response(agent)
+        if not captcha_response.is_pass:
+            # hCaptcha can emit a non-pass result immediately before the authoritative pass
+            # result for the same interaction. Hold failures briefly so the later pass wins.
+            _drain_captcha_response_queue(agent, preserve_pass=True)
+            _schedule_captcha_failure(
+                agent,
+                captcha_response,
+                queue=queue,
+                generation=generation,
+                grace_seconds=_EMPTY_CHECKCAPTCHA_GRACE_SECONDS,
+            )
+            logger.warning(
+                "hCaptcha check returned a non-pass response; waiting {:.1f}s for a paired "
+                "success | error={}",
+                _EMPTY_CHECKCAPTCHA_GRACE_SECONDS,
+                captcha_response.error or "unknown",
+            )
+            return
+
+        _drain_captcha_response_queue(agent)
+        queue = getattr(agent, "_captcha_response_queue", None)
+        if queue is not None:
+            queue.put_nowait(captcha_response)
 
 
 def _apply_empty_checkcaptcha_patch() -> None:
@@ -663,13 +937,69 @@ def _apply_empty_checkcaptcha_patch() -> None:
     original_task_handler = AgentV._task_handler
 
     async def patched_task_handler(self: AgentV, response: Any):
-        with suppress(Exception):
-            if await _queue_empty_checkcaptcha_response(self, response):
-                return
+        response_url = str(getattr(response, "url", ""))
+        if "/checkcaptcha/" in response_url:
+            try:
+                await _handle_checkcaptcha_response(self, response)
+            except Exception as err:
+                logger.warning(
+                    "hCaptcha check response handler failed | error_type={}", type(err).__name__
+                )
+            return
+
+        if "/getcaptcha/" in response_url:
+            async with _captcha_response_lock(self):
+                request = getattr(response, "request", None)
+                if request is not None:
+                    tracked = _has_tracked_captcha_request(self, response)
+                    generation = _take_captcha_request_generation(self, response)
+                    if tracked and (
+                        not getattr(self, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False)
+                        or generation != int(getattr(self, _CAPTCHA_RESPONSE_GENERATION_ATTR, 0))
+                    ):
+                        logger.debug("Ignoring stale or untracked hCaptcha payload response")
+                        return
+                    if not tracked and getattr(self, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False):
+                        logger.debug("Ignoring untracked hCaptcha payload response")
+                        return
+                elif getattr(self, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False):
+                    logger.debug("Ignoring hCaptcha payload response without request identity")
+                    return
+
+                # Before the first attempt there may be a legitimate payload response that was
+                # already in flight when tracking was installed. Let the dependency queue it;
+                # once an attempt is active, every real Playwright response must be registered.
+                _cancel_pending_empty_response(self)
+                try:
+                    result = await original_task_handler(self, response)
+                finally:
+                    if not getattr(self, _CAPTCHA_ATTEMPT_ACTIVE_ATTR, False):
+                        _drain_captcha_response_queue(self)
+                return result
         return await original_task_handler(self, response)
 
     patched_task_handler._epic_empty_response_patch = True
     AgentV._task_handler = patched_task_handler
+
+
+async def wait_for_scoped_challenge(agent: AgentV, *, timeout_seconds: float) -> ChallengeSignal:
+    """Run one hCaptcha solve with an attempt-scoped response queue."""
+    async with _captcha_attempt_run_lock(agent):
+        await begin_captcha_attempt(agent)
+        config = getattr(agent, "config", None)
+        previous_retry = getattr(config, "RETRY_ON_FAILURE", None)
+        try:
+            # The application owns retry limits. The dependency's recursive retry can otherwise
+            # re-enter wait_for_challenge with the same response queue and lose the boundary.
+            if config is not None and previous_retry is not None:
+                config.RETRY_ON_FAILURE = False
+            return await asyncio.wait_for(
+                agent.wait_for_challenge(), timeout=max(1.0, timeout_seconds)
+            )
+        finally:
+            if config is not None and previous_retry is not None:
+                config.RETRY_ON_FAILURE = previous_retry
+            await end_captcha_attempt(agent)
 
 
 def apply_hcaptcha_drag_patch() -> None:

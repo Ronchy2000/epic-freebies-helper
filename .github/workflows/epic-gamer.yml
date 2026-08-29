@@ -10,6 +10,12 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Do not let a scheduled run and a manual recovery run authenticate the same Epic
+# account concurrently. Overlapping browser sessions increase risk checks.
+concurrency:
+  group: epic-freebies-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   epic-gamer:
     runs-on: ubuntu-latest
