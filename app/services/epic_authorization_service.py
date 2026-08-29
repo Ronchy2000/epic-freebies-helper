@@ -18,7 +18,7 @@ from hcaptcha_challenger.agent import AgentV
 from hcaptcha_challenger.models import ChallengeSignal
 from loguru import logger
 from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import expect, Page, Response
+from playwright.async_api import expect, Locator, Page, Response
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from extensions.hcaptcha_adapter import (
@@ -543,6 +543,22 @@ class EpicAuthorization:
             await self.page.wait_for_timeout(250)
         return not await self._has_visible_hcaptcha_challenge()
 
+    async def _visible_password_submit_button(self) -> Locator | None:
+        """Find the current password submit control across Epic's login-page variants."""
+        locators = (
+            self.page.locator("#sign-in"),
+            self.page.locator("button[type='submit']"),
+            self.page.locator("input[type='submit']"),
+            self.page.get_by_role("button", name="Sign in", exact=True),
+        )
+        for locator in locators:
+            with suppress(Exception):
+                for index in range(await locator.count()):
+                    candidate = locator.nth(index)
+                    if await candidate.is_visible():
+                        return candidate
+        return None
+
     async def _advance_email_login(self, agent: AgentV) -> None:
         """Advance the email step while allowing Epic to challenge before Continue."""
         email_input = self.page.locator("#email")
@@ -1025,10 +1041,9 @@ class EpicAuthorization:
                 if await self._has_visible_hcaptcha_challenge():
                     return None
 
-                button_visible = False
-                with suppress(Exception):
-                    button_visible = await sign_in_button.is_visible()
-                if button_visible:
+                current_button = await self._visible_password_submit_button()
+                if current_button is not None:
+                    sign_in_button = current_button
                     await expect(sign_in_button).to_be_enabled(timeout=1000)
                     break
                 await self.page.wait_for_timeout(250)
@@ -1080,9 +1095,8 @@ class EpicAuthorization:
             if not password_visible:
                 return None
 
-            button_visible = False
-            with suppress(Exception):
-                button_visible = await sign_in_button.is_visible()
+            current_button = await self._visible_password_submit_button()
+            button_visible = current_button is not None
 
             # The button can be temporarily absent while Epic mounts the hCaptcha widget. A
             # bounded locator click preserves the upstream behavior that lets this transition
@@ -1094,7 +1108,7 @@ class EpicAuthorization:
                 await begin_captcha_attempt(agent, fresh=True)
                 generation = self._begin_login_submission()
                 try:
-                    await sign_in_button.click(timeout=5000, no_wait_after=True)
+                    await (current_button or sign_in_button).click(timeout=5000, no_wait_after=True)
                 except PlaywrightError as err:
                     if await self._has_visible_hcaptcha_challenge() or self._is_mfa_page():
                         return generation
@@ -1221,9 +1235,12 @@ class EpicAuthorization:
             self._login_request_generations.clear()
             self._login_submission_armed_generation = None
 
-            # Keep the persistent profile valid. Forcing sessionInvalidated on every run makes
-            # Epic re-authenticate even when the browser already has a usable session.
+            # Hosted runners do not preserve the profile between runs. Explicitly invalidate a
+            # hosted session so Epic renders a clean login flow; self-hosted persistent profiles
+            # keep the reusable session and avoid an unnecessary fresh authentication.
             point_url = "https://www.epicgames.com/account/personal?lang=en-US&productName=egs"
+            if os.getenv("GITHUB_ACTIONS", "").strip().lower() == "true":
+                point_url += "&sessionInvalidated=true"
             await self.page.goto(point_url, wait_until="domcontentloaded")
             await self._wait_for_login_form(point_url)
 

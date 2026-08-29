@@ -1434,3 +1434,19 @@
 - 改动文件：`app/services/epic_authorization_service.py`。
 - 处理结果：密码页首次即使按钮暂不可见也执行一次有界 locator click；点击异常后继续检查 challenge/checkbox，再进行有限重试。hCaptcha 检测增加 iframe 本身可见但内部节点尚未完成渲染的启动期兜底。
 - 验证边界：需要新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 为 Hosted Runner 恢复干净 Epic 登录入口
+
+- 线上验证：Actions run `33232262550` 已执行密码页点击，但页面始终没有恢复可提交控件，也未进入 hCaptcha；未产生登录、Store session 或领取证据。
+- 根因判断：唯一成功对照 run `32457261253` 使用 `sessionInvalidated=true`。Hosted Runner 每次都是新 profile，不需要保留站点会话；去掉该参数后，Epic 可能停留在不完整的登录表单状态。自托管持久 profile 则应继续复用会话。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：仅当 `GITHUB_ACTIONS=true` 时给登录入口追加 `sessionInvalidated=true`；本地/自托管不追加，保留持久登录能力。
+- 验证边界：需要一次新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
+
+### 2026-08-29 兼容 Epic 密码页提交控件变体
+
+- 线上验证：Actions run `33232262550` 已实际执行密码页点击，但 `#sign-in` 在 5 秒点击窗口内不可操作，之后页面仍未出现可识别 challenge，最终有界认证失败；没有 Store session 或入库证据。
+- 根因判断：当前 Epic 登录页的提交控件可能在 hCaptcha 初始化期间短暂缺失，或改用标准 submit/可访问名称按钮；只绑定单一 `#sign-in` 选择器会把控件变体和验证码初始化时序混为同一失败。
+- 改动文件：`app/services/epic_authorization_service.py`。
+- 处理结果：密码提交优先使用 `#sign-in`，并兼容 `button/input[type=submit]` 和精确名称 `Sign in` 的按钮；重提交等待也使用同一选择器集合，仍保留有限点击和 challenge 状态检查。
+- 验证边界：需要新的 Actions 运行确认；本地继续执行 Black、Ruff、编译、hCaptcha 协议契约和 diff 检查，不执行仓库禁止的测试。
