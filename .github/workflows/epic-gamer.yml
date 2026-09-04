@@ -66,6 +66,11 @@ jobs:
           EPIC_TOTP_SECRET: ${{ secrets.EPIC_TOTP_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WXPUSH_ENDPOINT: ${{ secrets.WXPUSH_ENDPOINT }}
+          WXPUSH_TOKEN: ${{ secrets.WXPUSH_TOKEN }}
+          WXPUSH_USERID: ${{ secrets.WXPUSH_USERID }}
+          WXPUSH_TEMPLATE_ID: ${{ secrets.WXPUSH_TEMPLATE_ID }}
+          WXPUSH_BASE_URL: ${{ secrets.WXPUSH_BASE_URL }}
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER || secrets.LLM_PROVIDER }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_BASE_URL: ${{ secrets.GEMINI_BASE_URL }}
