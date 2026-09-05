@@ -63,6 +63,101 @@ class FakePage:
             await self.clock.wait(timeout_ms)
 
 
+@pytest.mark.parametrize("device_modal", [False, True])
+def test_purchase_click_does_not_resubmit_after_timeout_with_progress(monkeypatch, device_modal):
+    page = FakePage()
+    game = EpicGames(page)
+    actions = []
+    modal_dismissed = False
+
+    class Button:
+        async def scroll_into_view_if_needed(self, **kwargs):
+            pass
+
+        async def click(self, **kwargs):
+            actions.append("get")
+            raise epic_games_service.TimeoutError("click timed out after dispatch")
+
+        async def dispatch_event(self, event):
+            pytest.fail("checkout already opened; Get must not be clicked again")
+
+    async def modal_visible(_page):
+        return device_modal and bool(actions) and not modal_dismissed
+
+    async def dismiss_modal(*args, **kwargs):
+        nonlocal modal_dismissed
+        modal_dismissed = True
+        actions.append("continue")
+        return True
+
+    async def has_progress(*args):
+        return bool(actions) and (not device_modal or modal_dismissed)
+
+    monkeypatch.setattr(EpicGames, "_is_device_not_supported_visible", staticmethod(modal_visible))
+    monkeypatch.setattr(
+        EpicGames, "_handle_device_not_supported_modal", staticmethod(dismiss_modal)
+    )
+    monkeypatch.setattr(game, "_has_purchase_progress", has_progress)
+
+    assert asyncio.run(game._click_purchase_button(page, Button(), "https://example.test/game"))
+    assert actions == (["get", "continue"] if device_modal else ["get"])
+
+
+def test_purchase_click_still_retries_when_no_progress(monkeypatch):
+    page = FakePage()
+    game = EpicGames(page)
+    actions = []
+
+    class Button:
+        async def scroll_into_view_if_needed(self, **kwargs):
+            pass
+
+        async def click(self, **kwargs):
+            actions.append("get")
+            raise epic_games_service.TimeoutError("click never dispatched")
+
+        async def dispatch_event(self, event):
+            actions.append(event)
+
+    async def modal_visible(_page):
+        return False
+
+    async def has_progress(*args):
+        return "click" in actions
+
+    monkeypatch.setattr(EpicGames, "_is_device_not_supported_visible", staticmethod(modal_visible))
+    monkeypatch.setattr(game, "_has_purchase_progress", has_progress)
+
+    assert asyncio.run(game._click_purchase_button(page, Button(), "https://example.test/game"))
+    assert actions == ["get", "click"]
+
+
+def test_purchase_debug_preserves_original_error_when_browser_is_closed(monkeypatch, tmp_path):
+    original = RuntimeError("original checkout failure")
+    screenshot_timeouts = []
+
+    class ClosedPage:
+        async def screenshot(self, **kwargs):
+            screenshot_timeouts.append(kwargs["timeout"])
+            raise RuntimeError("Connection closed while reading from the driver")
+
+    async def scenario():
+        try:
+            raise original
+        except RuntimeError:
+            await EpicGames._capture_purchase_debug(
+                ClosedPage(), "checkout_failed", "https://example.test/game"
+            )
+            raise
+
+    monkeypatch.setattr(epic_games_service, "RUNTIME_DIR", tmp_path)
+    with pytest.raises(RuntimeError) as caught:
+        asyncio.run(scenario())
+
+    assert caught.value is original
+    assert screenshot_timeouts == [5000]
+
+
 class TextBody:
     def __init__(self, text):
         self.text = text

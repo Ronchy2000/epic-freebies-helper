@@ -191,6 +191,7 @@ uv run ruff check --fix
 | 登录连续失败 | `Timed out waiting for Epic login outcome`、`btoa is read-only`、`Challenge execution timed out` | hCaptcha 仍在页面上，或页面状态被上一轮求解污染 | 登录挑战分段重试；失败后重建页面并清 cookie |
 | 商品页打开失败 | `Page.goto: Timeout 30000ms exceeded` | 页面主体可能已可用，但 `load` 被图片、脚本或第三方资源拖住 | 改成 `domcontentloaded`；允许部分加载后继续 |
 | `Get` 按钮点击卡死 | `Locator.click: Timeout 10000ms exceeded`，截图里按钮可见 | Playwright 等待点击动作完成，但页面没有按预期返回 | 点击策略改成标准点击、dispatch、DOM click、坐标点击、force click 分层兜底 |
+| 登录已成功，领取时浏览器驱动退出 | job 原始日志先出现 `TypeError: Cannot read properties of undefined (reading 'childFrames')`，随后 `Connection closed while reading from the driver` | Firefox 的已移除 iframe 仍上报迟到的导航事件，导致 Playwright Node 驱动崩溃；不是验证码未通过 | 浏览器启动时安装仅针对失效 frame 的导航保护；重试 `Get` 前先检查 checkout 是否已推进，避免重复提交 |
 | checkout 已推进但未确认 | 页面停留在 `Place Order` 或安全验证 | 点击成功不等于领取成功 | 必须继续观察订单确认、按钮状态、checkout iframe 和订单历史 |
 | 配置带换行 | 日志里模型名类似 `glm-4.6v\n` | GitHub Secrets 或用户复制配置时带入空白字符 | settings 层统一 `strip()` 字符串配置 |
 
@@ -214,6 +215,14 @@ uv run ruff check --fix
 
 4. **失败必须留下 artifact**  
    商品页打不开、按钮找不到、点击无效、checkout 未确认，都要保存截图和文本。后续修复应基于 artifact 归类，而不是在代码里继续猜新选择器。
+
+### Firefox 驱动崩溃排查与验证
+
+- 若最后只看到 `Page.screenshot: Connection closed while reading from the driver`，向前检查 Actions job 的原始日志；Node 驱动的异常不一定进入 Python 的 `error.log`。截图失败应当只记警告，不覆盖原始领取异常。
+- 当前兼容保护通过本项目的 `playwright_frame_guard.cjs` 在驱动进程启动时加载，不修改 `.venv` 文件或全局 `NODE_OPTIONS`。它只忽略不存在的 frame 的导航事件，不能把驱动断连、登录失败或未确认领取转成成功。
+- 此保护依赖当前锁定的 Playwright 内部 Firefox 接口。升级 Playwright 时必须复验；不能仅因版本更新就假设此竞态已经修复。
+- 执行测试需遵守仓库的测试约定，并获得当前任务的明确授权。定向回归命令：`uv run pytest -q tests/test_playwright_runtime.py tests/test_checkout_state_machine.py`。
+- 安装 Camoufox 和 Playwright Firefox 后，可用 `EPIC_BROWSER_SMOKE=1 uv run pytest -q tests/test_browser_runtime_smoke.py` 验证真实浏览器反复替换 iframe 后仍能操作 checkout。该检查使用本地 HTML、隔离 profile，不登录真实账号，也不能替代 Epic 实际领取与入库核验。
 
 ### 修复落点
 

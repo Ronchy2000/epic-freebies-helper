@@ -721,9 +721,20 @@ class EpicGames:
         target = RUNTIME_DIR.joinpath("purchase_debug")
         target.mkdir(parents=True, exist_ok=True)
         safe_reason = reason.lower().replace(" ", "_")
-        await page.screenshot(path=target.joinpath(f"{safe_reason}-{stamp}.png"), full_page=True)
+        try:
+            await page.screenshot(
+                path=target.joinpath(f"{safe_reason}-{stamp}.png"), full_page=True, timeout=5000
+            )
+        except Exception as err:
+            logger.warning(
+                "Purchase debug screenshot unavailable | reason={} | error_type={}",
+                reason,
+                type(err).__name__,
+            )
+        else:
+            logger.info(f"Saved purchase debug screenshot - reason={reason} url={url}")
         with suppress(Exception):
-            page_text = await page.locator("body").text_content()
+            page_text = await page.locator("body").text_content(timeout=1500)
             frame_texts = []
             for index, frame in enumerate(page.frames):
                 frame_url = (frame.url or "").split("?", 1)[0].split("#", 1)[0]
@@ -762,7 +773,6 @@ class EpicGames:
                 ),
                 encoding="utf-8",
             )
-        logger.info(f"Saved purchase debug screenshot - reason={reason} url={url}")
 
     @staticmethod
     async def _goto_product_page(page: Page, url: str, title: str, attempts: int = 3) -> bool:
@@ -875,13 +885,22 @@ class EpicGames:
         )
 
         for name, action in click_attempts:
-            if await EpicGames._is_device_not_supported_visible(page):
+            device_modal_visible = await EpicGames._is_device_not_supported_visible(page)
+            if device_modal_visible:
                 logger.warning(
                     "Device not supported modal blocking purchase click - dismissing before {} attempt - {}",
                     name,
                     url,
                 )
                 await EpicGames._handle_device_not_supported_modal(page, url, timeout_ms=5000)
+
+            # A timed-out click or modal dismissal may already have opened checkout.
+            # Do not submit Get again and replace an in-flight checkout iframe.
+            if (name != "standard" or device_modal_visible) and await self._has_purchase_progress(
+                page, url
+            ):
+                logger.debug("Purchase already progressing before {} retry - {}", name, url)
+                return True
 
             try:
                 await asyncio.wait_for(action(), timeout=7000)
