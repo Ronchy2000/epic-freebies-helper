@@ -218,7 +218,19 @@ async def send_collection_summary_to_wxpush(
         )
         return
 
-    if msg := _success_message(response.text):
+    # Reading and confirming the response must stay under notification-level
+    # protection too: an unreadable body must not surface as a claim failure.
+    try:
+        text = response.text
+        msg = _success_message(text)
+    except Exception as err:
+        logger.warning(
+            "WXPush notification delivered but response could not be read | error_type={}",
+            type(err).__name__,
+        )
+        return
+
+    if msg:
         logger.success("WXPush claim summary sent | msg={}", msg)
     else:
         logger.warning(
