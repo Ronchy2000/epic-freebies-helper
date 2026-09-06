@@ -11,6 +11,7 @@ from loguru import logger
 from playwright.async_api import BrowserContext, Route, ViewportSize, async_playwright
 from requests import HTTPError, RequestException
 
+from extensions.playwright_runtime import install_playwright_frame_guard
 from settings import RECORD_DIR, settings
 
 _VIEWPORT = ViewportSize(width=1920, height=1080)
@@ -156,6 +157,7 @@ async def _install_hsw_identity_route(context: BrowserContext) -> None:
 
 @asynccontextmanager
 async def open_browser_context(headless: bool | str) -> AsyncIterator[BrowserContext]:
+    install_playwright_frame_guard()
     backend = (settings.BROWSER_BACKEND or "auto").strip().lower()
     headless = resolve_headless_mode(headless)
     proxy = _browser_proxy_options()

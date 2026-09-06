@@ -1,0 +1,49 @@
+name: Feature 功能建议（中文）
+description: 提出新功能、可选集成或现有体验的改进建议
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        此表单用于提出功能建议，无需提供失败的 Actions 运行链接或复现步骤。
+        提交前请先搜索已有 Issues 和 Pull Requests，避免重复建议；现有功能运行异常请使用 Bug 反馈表单。
+        请勿提交账号密码、Token、API Key 或其他敏感信息。
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: 使用场景与需求
+      description: 你希望解决什么问题？目前的使用方式有哪些不便？
+      placeholder: 例如：希望不打开 Actions 日志，也能在常用的通知渠道查看领取结果。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: 期望的功能与效果
+      description: 描述你希望如何使用这个功能，以及什么结果算满足需求；不要求提供实现代码。
+      placeholder: 例如：新增可选的微信通知渠道，在任务结束后发送领取摘要；未配置时不发送通知。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+      description: 可选。是否已有可用方案？它们有哪些不足？
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: 配置与兼容性考虑
+      description: 可选。是否需要额外服务或配置？是否能作为可选功能，不影响现有单账号配置和领取流程？不了解实现细节可以留空。
+      placeholder: 例如：用户主动配置后才启用；新渠道不可用时，不影响领取任务和已有通知渠道。
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他补充信息
+      description: 可选。补充相关项目或接口文档、示例截图、关联 Issue 或 PR 链接。

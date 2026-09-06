@@ -1341,3 +1341,49 @@
   - 计数题提示改为方向无关；通过重复数量徽标识别参考条方向并约束另一侧网格。所有点选答案在缓存和点击前验证挑战边界，计数题额外验证可点击网格，越界答案直接拒绝。
   - 无效的标量拖拽坐标提前报告为结构错误；新增浏览器请求头、超时信息、重试预算、左右参考条和越界坐标回归覆盖。
   - 本地定向测试 `35 passed`，完整测试 `60 passed`，Ruff、变更文件 Black 和 `git diff --check` 均通过。
+
+### 2026-09-06 为 GitHub Issues 增加独立的功能建议入口
+
+- 现象：
+  - Issue #28 的微信通知功能建议使用了 Bug 表单，被要求填写 Actions 运行链接、Fork 可见性和复现步骤，并自动添加了 `bug` 标签。
+- 根因判断：
+  - 仓库仅提供中英文 Bug 表单，且关闭了空白 Issue，缺少专门用于新功能和改进建议的入口。
+- 改动文件：
+  - `.github/ISSUE_TEMPLATE/03-feature-request-zh.yml`
+  - `.github/ISSUE_TEMPLATE/04-feature-request-en.yml`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 新增中英文 Feature 表单，标题使用 `[Feature]` 前缀，并复用仓库已有的 `enhancement` 标签。
+  - 仅要求描述使用场景和期望功能；替代方案、配置兼容性与相关资料为可选项，不要求失败运行链接或复现步骤。
+  - 提醒提交者保护敏感信息，并考虑可选功能对现有单账号配置及领取流程的兼容性；原有 Bug 表单和程序运行逻辑保持不变。
+  - 表单需提交并推送到 GitHub 默认分支后，才会出现在新建 Issue 的模板选择页。
+  - YAML 解析、表单字段及必填项静态检查通过；遵守仓库约定，未执行测试或领取任务。
+
+### 2026-09-06 修复领取阶段 Firefox 失效 frame 导航导致的驱动崩溃
+
+- 现象：
+  - Actions run `33967879331` / job `101311091728` 在登录 hCaptcha 最终成功、Epic 商店会话验证完成后，领取 `Alone With You` 时失败。
+  - `Get` 点击出现 `Device not supported` 弹窗，处理 Continue 时，原始 job 日志中的 Playwright Node 驱动抛出 `TypeError: Cannot read properties of undefined (reading 'childFrames')`；随后 Python 报 `Connection closed while reading from the driver`。
+  - 错误处理中的截图也因驱动断连失败，最终异常变成 `Page.screenshot`，容易被误认为截图或验证码问题。
+- 根因判断：
+  - 此次运行使用 Playwright `1.53.0`、Camoufox Python 包 `0.4.11` 和动态下载的 Camoufox `152.0.4-beta.30`。Firefox 的导航提交事件引用了 frame 表中不存在的对象；Playwright 未做空值检查便访问 `childFrames()`，导致整个驱动退出。迟到的 iframe 导航事件可在本地安装的真实 Node 驱动代码中复现完全相同的堆栈。
+  - Python 层捕获连接异常无法恢复已退出的驱动，增加验证码重试也无法解决该崩溃。
+  - 另发现 `Get` 点击超时或设备弹窗关闭后未在下次点击前检查领取进度，可能重复提交并替换正在加载的 checkout；这是同一链路的独立重试缺口，不能仅凭现有日志认定它就是本次竞态的唯一触发原因。
+- 改动文件：
+  - `app/extensions/playwright_runtime.py`
+  - `app/extensions/playwright_frame_guard.cjs`
+  - `app/services/browser_context.py`
+  - `app/services/epic_games_service.py`
+  - `tests/test_playwright_runtime.py`
+  - `tests/test_browser_runtime_smoke.py`
+  - `tests/test_checkout_state_machine.py`
+  - `docs/advanced.md`
+  - `docs/advanced.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 两个 Firefox 后端启动驱动前加载同一窄范围保护，仅跳过不存在的 frame 的导航提交事件；有效 frame 的原始处理、worker 清理和其他异常保持不变。未修改 `.venv` 文件、全局 Node 环境、模型配置或通知配置。
+  - `Get` 重试前检查 checkout 是否已经推进；若已推进则进入结账观察，不再重复点击。诊断截图增加 5 秒时限并容忍失败，避免覆盖原始领取异常或虚报截图已保存。
+  - 按本次用户明确要求执行测试：修改前基线 `60 passed`；修复后 `EPIC_BROWSER_SMOKE=1 .venv/bin/python -m pytest -q` 为 `70 passed`，包含实际 Node 驱动崩溃复现、有效 frame 行为保留、带空格路径、重复点击防护，以及两个真实浏览器的 iframe 替换检查。
+  - 本地真实 Camoufox 流程复用已有登录态，在 `Get`、设备不支持弹窗、`Add to library` 后确认 `IN LIBRARY`，领取进程 exit code 0；另起浏览器只读核对 Epic 订单历史，确认 `Alone With You` 对应记录存在。
+  - 普通 Playwright Firefox 的真实登录对照仍因登录未完成而失败，未将其转为成功。本次未重新验证全新会话的完整 hCaptcha 登录路径，也未重跑 GitHub Actions；不能把本地结果等同于云端所有网络环境均已通过。
+  - Ruff、Black、Node 语法检查、hCaptcha 协议契约检查及 `git diff --check` 通过；中英文排障文档补充原始驱动日志的定位方法和升级 Playwright 后的复验要求。
