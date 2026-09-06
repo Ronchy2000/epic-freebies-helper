@@ -1387,3 +1387,30 @@
   - 本地真实 Camoufox 流程复用已有登录态，在 `Get`、设备不支持弹窗、`Add to library` 后确认 `IN LIBRARY`，领取进程 exit code 0；另起浏览器只读核对 Epic 订单历史，确认 `Alone With You` 对应记录存在。
   - 普通 Playwright Firefox 的真实登录对照仍因登录未完成而失败，未将其转为成功。本次未重新验证全新会话的完整 hCaptcha 登录路径，也未重跑 GitHub Actions；不能把本地结果等同于云端所有网络环境均已通过。
   - Ruff、Black、Node 语法检查、hCaptcha 协议契约检查及 `git diff --check` 通过；中英文排障文档补充原始驱动日志的定位方法和升级 Playwright 后的复验要求。
+
+### 2026-09-06 增加可选 WXPush 微信通知并隔离通知异常（PR #29）
+
+- 现象：
+  - Issue #28 希望通过微信接收领取结果；原有通知渠道仅支持 Telegram。
+  - PR #29 初版中，错误的 `WXPUSH_ENDPOINT`（如 `https://[broken`）可能在通知异常保护之外触发 URL 解析异常，覆盖领取结果或阻断限流后的正常返回。
+  - 初版未验证响应是否符合 WXPush 成功协议，误配为 `/skin` 页面时，即使接口返回 HTTP 200 HTML、没有发送消息，也可能记录发送成功。
+- 根因判断：
+  - 通知端点仅检查是否包含 `://`，未完整保护地址解析、消息构造及响应读取；HTTP 请求成功也不等同于微信推送成功。
+  - 新渠道必须复用现有领取摘要和账号标签，并保持可选配置，不能把配置错误、网络或推送服务故障转换成领取任务失败。
+- 改动文件：
+  - `app/services/wxpush_notification_service.py`
+  - `app/deploy.py`
+  - `tests/test_wxpush_notification.py`
+  - `.github/workflows/epic-gamer.yml`
+  - `.github/workflows/README.md`
+  - `.github/workflows/README.en.md`
+  - `README.md`
+  - `README.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 新增面向自托管 `frankiejun/wxpush` 的可选通知渠道。仅在 Token 和可解析的 HTTP(S) 端点同时配置时启用；未配置时不新增通知请求，保持原单账号和 Telegram 路径。
+  - 复用 `CollectionSummary`，向已配置渠道发送同一领取摘要；多账号正文使用现有打码标签。标题限制为 20 字，正文超过 500 字时按行截断并标记；中英文文档说明所需 Secrets、服务部署及微信模板限制。
+  - URL 解析拒绝已识别的非法地址，消息构造、HTTP 发送及响应读取异常均作为通知警告处理。仅接受 JSON 对象中以 `Successfully sent messages` 开头的 `msg` 作为服务端成功确认；HTML、无效 JSON 或未确认成功的响应不再记录成功日志。
+  - 限流仍先发送包含失败原因的摘要，再返回 `rate_limited` 正常结束；不会把限流记为领取成功，其他领取异常仍保持失败。未改动登录、hCaptcha、浏览器或 checkout 业务逻辑，保留 `master` 的 `70354be` 浏览器修复。
+  - 对最新 PR 代码完成静态复审，并核对 WXPush 上游 `/wxsend` 响应协议；Ruff、Black、Python 语法、工作流 YAML 和 `git diff --check` 检查通过。
+  - 按仓库规则，本轮未执行测试或真实微信投递。新增文件包含 29 个测试定义，但仍缺少发送异常、双渠道调度及限流返回值的集成回归覆盖；不能将此前浏览器修复的 70 项测试结果视为本 PR 的验证结果。
