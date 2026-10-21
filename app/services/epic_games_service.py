@@ -43,6 +43,16 @@ URL_ORDER_HISTORY = "https://www.epicgames.com/account/v2/payment/ajaxGetOrderHi
 PURCHASE_IFRAME_SELECTOR = (
     "//iframe[contains(@id, 'webPurchaseContainer') or contains(@src, 'purchase')]"
 )
+# 商品页购买按钮：新版商店用 sidebarBuyButton（data-testid 已不再出现），旧版用
+# purchase-cta-button。后面几个按按钮文案兜底，兼顾英文、中文和 Add to Cart 流程。
+PURCHASE_CTA_SELECTORS = (
+    "//button[contains(@class, 'sidebarBuyButton')]",
+    "//button[@data-testid='purchase-cta-button']",
+    "//button[.//span[normalize-space(text())='Get']]",
+    "//button[.//span[normalize-space(text())='Add to Cart']]",
+    "//button[.//span[normalize-space(text())='获取']]",
+    "//button[.//span[normalize-space(text())='加入购物车']]",
+)
 CHECKOUT_BUTTON_TEXTS = ("PLACE ORDER", "ADD TO LIBRARY")
 CHECKOUT_BUTTON_PATTERN = re.compile(
     rf"^(?:{'|'.join(map(re.escape, CHECKOUT_BUTTON_TEXTS))})$", re.IGNORECASE
@@ -408,9 +418,28 @@ class EpicGames:
         return "\n".join(filter(None, chunks))
 
     @staticmethod
+    async def _find_purchase_cta(page: Page):
+        """返回第一个可见的商品页购买按钮。
+
+        都不可见时返回新版选择器的 locator，交给调用方继续等待它渲染出来，
+        不要把“还没渲染”直接当成“页面里没有购买按钮”。
+        """
+        for selector in PURCHASE_CTA_SELECTORS:
+            candidates = page.locator(selector)
+            with suppress(Exception):
+                for index in range(min(await candidates.count(), 5)):
+                    candidate = candidates.nth(index)
+                    if await candidate.is_visible():
+                        logger.debug(
+                            "Purchase CTA located | selector='{}' index={}", selector, index
+                        )
+                        return candidate
+        return page.locator(PURCHASE_CTA_SELECTORS[0]).first
+
+    @staticmethod
     async def _purchase_button_text(page: Page) -> str:
-        purchase_btn = page.locator("//button[@data-testid='purchase-cta-button']").first
         with suppress(Exception):
+            purchase_btn = await EpicGames._find_purchase_cta(page)
             if await purchase_btn.is_visible():
                 return ((await purchase_btn.text_content()) or "").strip().upper()
         return ""
@@ -773,6 +802,10 @@ class EpicGames:
                 ),
                 encoding="utf-8",
             )
+            # 选择器失效时，光看文本摘要很难判断真实结构，这里再存一份 HTML。
+            target.joinpath(f"{safe_reason}-{stamp}.html").write_text(
+                await page.content(), encoding="utf-8"
+            )
 
     @staticmethod
     async def _goto_product_page(page: Page, url: str, title: str, attempts: int = 3) -> bool:
@@ -795,9 +828,7 @@ class EpicGames:
                     await page.evaluate("window.stop()")
 
                 if url.rstrip("/") in page.url.rstrip("/"):
-                    purchase_btn = page.locator(
-                        "//button[@data-testid='purchase-cta-button']"
-                    ).first
+                    purchase_btn = await EpicGames._find_purchase_cta(page)
                     body_text = ""
                     with suppress(Exception):
                         body_text = await page.locator("body").text_content(timeout=2000) or ""
@@ -1953,20 +1984,34 @@ class EpicGames:
             # 🔥 新思路：彻底解决按钮识别问题 (黑名单机制 + 智能点击)
             # ------------------------------------------------------------
 
-            # 1. 尝试找到所有可能的“主按钮”
-            # Epic 按钮通常有 'purchase-cta-button' 这个 TestID
-            purchase_btn = page.locator("//button[@data-testid='purchase-cta-button']").first
+            # 1. 找到当前商店的购买 CTA（新版是 sidebarBuyButton，旧版是 purchase-cta-button）
+            purchase_btn = await self._find_purchase_cta(page)
 
             # 2. 如果没找到主按钮，尝试找“库中”状态
             try:
-                if not await purchase_btn.is_visible():
-                    # 再次检查是否在库中 (有时按钮不叫 purchase-cta，而是简单的 disabled button)
-                    all_text = (await page.locator("body").text_content() or "").upper()
-                    if any(marker in all_text for marker in owned_markers):
-                        logger.success(
-                            "Game already claimed / already in library (page text scan) - "
-                            f"title='{game_title}' url='{url}'"
+                cta_visible = await purchase_btn.is_visible()
+                if not cta_visible:
+                    # 慢速线路上 CTA 常常晚几秒才渲染出来，先给它一次机会再判定
+                    with suppress(Exception):
+                        await purchase_btn.wait_for(state="visible", timeout=12000)
+                    cta_visible = await purchase_btn.is_visible()
+                if not cta_visible:
+                    # 整页文本只能作为最后的兜底判据：
+                    #   - 必须用 inner_text()，text_content() 会把 <script> 里整本 i18n
+                    #     字典一起读出来（含 Unavailable / Coming Soon），任何商品页都会命中；
+                    #   - 命中后把命中词和 HTML 落盘，便于事后区分“真已拥有”和“没加载完”。
+                    all_text = (await page.locator("body").inner_text() or "").upper()
+                    matched = [marker for marker in owned_markers if marker in all_text]
+                    if matched:
+                        logger.warning(
+                            "Page text scan matched owned markers {} - title='{}' url='{}'; "
+                            "capturing evidence before skipping",
+                            matched,
+                            game_title,
+                            url,
                         )
+                        with suppress(Exception):
+                            await self._capture_purchase_debug(page, f"textscan_{matched[0]}", url)
                         continue
                     logger.warning(f"Could not find any purchase button - {url=}")
                     await self._capture_purchase_debug(page, "button_missing", url)
