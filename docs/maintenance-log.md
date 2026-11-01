@@ -1414,3 +1414,30 @@
   - 限流仍先发送包含失败原因的摘要，再返回 `rate_limited` 正常结束；不会把限流记为领取成功，其他领取异常仍保持失败。未改动登录、hCaptcha、浏览器或 checkout 业务逻辑，保留 `master` 的 `70354be` 浏览器修复。
   - 对最新 PR 代码完成静态复审，并核对 WXPush 上游 `/wxsend` 响应协议；Ruff、Black、Python 语法、工作流 YAML 和 `git diff --check` 检查通过。
   - 按仓库规则，本轮未执行测试或真实微信投递。新增文件包含 29 个测试定义，但仍缺少发送异常、双渠道调度及限流返回值的集成回归覆盖；不能将此前浏览器修复的 70 项测试结果视为本 PR 的验证结果。
+
+
+### 2026-10-24 新增移动端限免（Android / iOS）领取
+
+- 现象：
+  - Epic 每周除 PC 限免外还提供一款移动端限免，Android 与 iOS 是同一款游戏的两个独立商品页；本项目只读 PC 的 `freeGamesPromotions`，移动端条目从不参与领取。
+- 根因判断：
+  - PC 的 promotion 接口不包含移动端条目，移动端目录只出现在移动端店铺首页接口（`egs-platform-service.store.epicgames.com/api/v2/public/discover/home?platform=android|ios`）。
+  - 该接口拒绝纯 HTTP 客户端（实测 403），必须借已打开的 store 页面上下文发请求。
+  - 移动端商品页（`/p/<slug>-android-<hash>`、`/p/<slug>-ios-<hash>`）的结账链路与 PC 同构，桌面网页即可 0 元领取，不需要模拟器或手机。
+- 改动文件：
+  - `app/services/epic_mobile_service.py`（新增）
+  - `app/services/epic_games_service.py`
+  - `.env.example`
+  - `.github/workflows/epic-gamer.yml`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 新增 `epic_mobile_service`：读取 `EPIC_MOBILE_ANDROID` / `EPIC_MOBILE_IOS`（默认 false，互不影响），在店铺页面上下文里发现当期限免的移动端商品，转换为 `PromotionGame` 追加到待领列表；所有异常在模块内部兜底，失败时退化为只领 PC。
+  - `EpicAgent._check_orders()` 增加一次注入调用，商品页前缀复用既有 `URL_PRODUCT_PAGE`（en-US）；标题追加 `(Android)` / `(iOS)` 以区分同一款游戏的两个 SKU。
+  - 注入点为什么选 `_check_orders()` 而不是 `collect_weekly_games()`：PC 限免全部已拥有时，`collect_epic_games()` 会在调用 `collect_weekly_games()` 之前就打印 “All week-free games are already in the library” 并提前返回，挂在后者的逻辑永远不会执行（2026-10-24 实跑复现）。
+  - 结账、验证码求解、订单历史核对全部复用既有流程，未改动任何判据。
+  - 两个开关默认关闭，关闭时行为与改动前一致；GitHub Actions 通过仓库 Variables 透传，未开启时同样无影响。
+  - 发现请求必须在 `store.epicgames.com` 同源页面里发出：注入点执行时页面可能停在 `accounts.epicgames.com`（订单历史就是直接跳转到原始 JSON 接口），此时页面内 `fetch` 被 CORS 拒绝、`page.request` 被 Cloudflare 403；模块内检测当前域名，必要时临时开一个 store 页做发现，用完即关。
+  - 判重必须按 `offerId` 而不是 `namespace`：同一款游戏的 PC 与移动端 SKU 共享同一个 sandbox/namespace，按下发回来的 `sandboxId` 判重会把没领过的移动端 SKU 误判成「已拥有」（2026-10-24 实跑复现）。
+  - 跨平台判重（同一 namespace 下 PC / Android / iOS 被误判为已拥有）不在此 PR 范围内，另见独立修复 PR。
+  - 已知限制：Android 商品全球可领，iOS 商品 Epic 仅面向欧盟区域提供，非欧盟账号可能在结账时被拒；因此 iOS 开关默认关闭，需先人工验证再开启。
+  - 按仓库规则未执行测试；`py_compile`、`ruff`、`black -C -l 100`、`git diff --check` 复核通过。

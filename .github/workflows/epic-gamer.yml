@@ -88,6 +88,11 @@ jobs:
           DISABLE_BEZIER_TRAJECTORY: false
           # 在 Actions 中我们依靠 GitHub 的 cron 触发，所以关闭内部调度器
           ENABLE_APSCHEDULER: false
+          # 移动端限免（默认关闭）。开启方式：仓库 Settings -> Secrets and
+          # variables -> Actions -> Variables 里新增 EPIC_MOBILE_ANDROID=true /
+          # EPIC_MOBILE_IOS=true，无需改工作流文件。
+          EPIC_MOBILE_ANDROID: ${{ vars.EPIC_MOBILE_ANDROID || 'false' }}
+          EPIC_MOBILE_IOS: ${{ vars.EPIC_MOBILE_IOS || 'false' }}
           MPLBACKEND: Agg
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHONPATH: app

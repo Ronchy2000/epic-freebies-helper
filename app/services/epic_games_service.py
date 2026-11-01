@@ -28,6 +28,11 @@ from models import PromotionGame
 from services.epic_authorization_service import EpicManualActionRequiredError
 from settings import settings, RUNTIME_DIR
 
+try:
+    from services.epic_mobile_service import append_mobile_promotions
+except ImportError:  # pragma: no cover - 模块缺失时保持原有行为
+    append_mobile_promotions = None
+
 URL_CLAIM = "https://store.epicgames.com/en-US/free-games"
 URL_LOGIN = (
     f"https://www.epicgames.com/id/login?lang=en-US&noHostRedirect=true&redirectUrl={URL_CLAIM}"
@@ -317,6 +322,17 @@ class EpicAgent:
         for promotion in claimed_promotions:
             logger.success(
                 f"Game already claimed previously - title='{promotion.title}' url='{promotion.url}'"
+            )
+
+        # 移动端限免（Android / iOS）默认关闭；开启时把当期限免追加进待领列表。
+        # 必须在这里追加而不是 collect_weekly_games()：PC 限免全部已拥有时，
+        # collect_epic_games() 会在调用 collect_weekly_games() 之前提前返回。
+        if append_mobile_promotions is not None:
+            self._promotions = await append_mobile_promotions(
+                self.page,
+                self._promotions,
+                product_url_prefix=URL_PRODUCT_PAGE,
+                exclude_offer_ids={item.offerId for item in self._orders},
             )
 
     async def _should_ignore_task(self) -> bool:
