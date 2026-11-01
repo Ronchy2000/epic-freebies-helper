@@ -1519,7 +1519,15 @@ class EpicGames:
                 if order.orderType != "PURCHASE":
                     continue
                 for item in order.items:
-                    if item.namespace == promotion.namespace or item.offerId == promotion.id:
+                    # 同一款游戏的 PC / Android / iOS SKU 共享同一个 namespace，按 namespace
+                    # 匹配会把没领过的平台误判成「已领取」（2026-10-24 实测：iOS 提交因验证码
+                    # 超时失败，却被 Android 的订单记录判成已拥有）。offerId 才能精确区分平台
+                    # SKU，因此优先用它匹配；只有 promotion 没有 offerId 时才退回 namespace 兜底。
+                    if promotion.id:
+                        matched = item.offerId == promotion.id
+                    else:
+                        matched = item.namespace == promotion.namespace
+                    if matched:
                         logger.success(
                             "Promotion found in order history - title='{}' namespace='{}' offer='{}'",
                             promotion.title,
