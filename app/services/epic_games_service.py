@@ -70,6 +70,10 @@ class EpicFreeGameRateLimitError(RuntimeError):
     pass
 
 
+class EpicSessionExpiredError(RuntimeError):
+    """Epic 账号会话已失效（账号层 auth 过期），需要重新登录。"""
+
+
 def get_promotions() -> List[PromotionGame]:
     """获取周免游戏数据"""
 
@@ -308,7 +312,22 @@ class EpicAgent:
         return set(self._namespaces)
 
     async def _check_orders(self):
-        await self._sync_order_history()
+        # 订单历史接口是唯一可信的会话探针：商店页 egs-navigation@isloggedin 由 refresh token
+        # 在每次页面加载时自动续期，账号层 auth（8h/24h）过期后它依然是 "true"。原本这里不检查
+        # 探测结果，一旦拿到的是登录页 HTML 就会被当成"一条拥有记录都没有"，于是已拥有的周免
+        # 被重新点一遍 Get，每次都重定向到 /id/login/switch-account，整轮空转十几分钟才在
+        # 收尾复核时失败。探测失败就直接失败，并且把现场证据落盘。
+        if not await self._sync_order_history():
+            with suppress(Exception):
+                await self._capture_purchase_debug(
+                    self.page, "session_probe_failed", URL_ORDER_HISTORY
+                )
+            raise EpicSessionExpiredError(
+                "Epic 会话已失效：订单历史接口没有返回有效 JSON（通常是被重定向到登录页），"
+                "商店页的 isloggedin 标志不可信。请检查 EPIC_EMAIL / EPIC_PASSWORD 是否正确，"
+                f"或先手动登录一次。current_url={self.page.url}"
+            )
+
         self._namespaces = self._namespaces or [order.namespace for order in self._orders]
         all_promotions = get_promotions()
         claimed_promotions = [p for p in all_promotions if p.namespace in self._namespaces]

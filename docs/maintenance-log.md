@@ -1414,3 +1414,51 @@
   - 限流仍先发送包含失败原因的摘要，再返回 `rate_limited` 正常结束；不会把限流记为领取成功，其他领取异常仍保持失败。未改动登录、hCaptcha、浏览器或 checkout 业务逻辑，保留 `master` 的 `70354be` 浏览器修复。
   - 对最新 PR 代码完成静态复审，并核对 WXPush 上游 `/wxsend` 响应协议；Ruff、Black、Python 语法、工作流 YAML 和 `git diff --check` 检查通过。
   - 按仓库规则，本轮未执行测试或真实微信投递。新增文件包含 29 个测试定义，但仍缺少发送异常、双渠道调度及限流返回值的集成回归覆盖；不能将此前浏览器修复的 70 项测试结果视为本 PR 的验证结果。
+
+### 2026-11-01 修正「会话已失效却判定已登录」导致的空转
+
+- 现象：
+  - 使用持久化浏览器 profile（官方 docker 方式挂载 `./volumes`，会话跨运行复用）时，诊断日志一直显示 `Epic Games is already logged in`，但随后每个周免商品点击 `Get` 都被重定向到 `/id/login/switch-account`，页面上出现登录浮层（class 含 `_takeover_`）拦截所有点击。
+  - 每款商品要消耗 4 种点击策略约 4 分钟，整轮十几分钟才在收尾复核时报错，且报错信息完全指不到「未登录」这个根因。
+- 影响范围（为什么仓库自带的 CI 测不出来）：
+  - 仓库的 GitHub Actions workflow 不缓存 `app/volumes/user_data`，每次运行都是全新 profile，因此每次都会真登录一次，不会触发该路径。
+  - 官方 `docker-compose.yml` 自托管部署会挂载 `./volumes`，浏览器 profile 与账号会话跨运行复用；周免一周一次，两次运行的间隔远超账号层 auth 的 8h / 24h 寿命，所以自托管用户基本**每周必然**命中。
+  - 同一份代码在本机直接 `uv run`（`app/volumes` 同样持久化）也会命中。
+- 根因判断：
+  - `EpicAuthorization.invoke()` 只凭 `egs-navigation@isloggedin == "true"` 判定已登录。该标志反映的是商店 token，而商店 token 由 refresh token 在每次页面加载时自动续期（实测 `EPIC_EG1` 寿命 8 小时且滑动续期、`REFRESH_EPIC_EG1` 一年），账号层 `EPIC_AUTH_*` 才是 8 小时 / 24 小时后失效的那一层。因此失效的会话永远不会触发重新登录。
+  - `EpicAgent._check_orders()` 忽略 `_sync_order_history()` 的返回值：探测失败（拿到登录页 HTML 而不是 JSON）被当成「一条拥有记录都没有」，于是已拥有的周免被重新走一遍领取流程。
+- 改动文件：
+  - `app/services/epic_authorization_service.py`
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - `invoke()` 在 `isloggedin == "true"` 之后用订单历史接口复核账号会话（一次导航，约 2 秒），不通过则回到原有 `_login()` 走一次真登录；复核失败会重试一次，避免网络抖动逼出多余登录。不新增任何登录入口。
+  - `_check_orders()` 在订单历史探测失败时立即抛出 `EpicSessionExpiredError`，并把现场证据（截图、当前 URL、页面文本）落盘到 `runtime/purchase_debug/session_probe_failed-*`，便于事后区分「会话失效」与「接口临时故障」。
+  - 真机验证（自托管 Docker + 持久化 profile）：修复前同一失效 profile 下判定「已登录」后 3 款商品全部空转；修复后日志先出现 `Store reports a logged-in session but the order-history probe rejected it; forcing a fresh login`，随后 `Login success` 并正常领取成功、进程 exit 0，全程 6 分 47 秒，无需人工清理 cookie。
+  - `.env` 与 GitHub Actions 配置未改动；Actions 每次全新 profile 会真登录，行为不受影响。
+  - Ruff（该文件 52 项既有告警）与 Black（两个文件原本就需要重排）结果与改动前基线完全一致，未引入新的静态检查问题；`python -m py_compile` 通过。按仓库规则未运行测试。
+
+### 2026-11-07 修正「全新 profile 登录后商店会话缺失」导致 GitHub Actions 必然失败
+
+- 现象：
+  - 在 GitHub Actions（hosted runner，每次都是全新浏览器 profile）运行 `app/deploy.py` 时，账号层登录成功（`Login success`、`Right account validation success`），但商店页面 `//egs-navigation@isloggedin` 始终是 `false` 或读不到（连续 `Timed out while waiting for //egs-navigation during auth check`），截图里商店页头仍是 `Sign in`。
+  - 认证阶段被 `_ensure_store_session_ready()` 的订单历史兜底判成成功，紧接着 `_should_ignore_task()` 在领取页再次读到 `isloggedin=false`，报 `❌ context cookies is not available`，随后抛出 `RuntimeError: Epic Games session cookies are unavailable after authentication`，整轮失败。
+  - 实测 Actions run 42355705920 两次运行在同一行失败（耗时 636 秒、305 秒），失败点完全一致，属于确定性失败而非验证码偶发。
+  - 实测 Actions run 42355705920 两次运行在同一行失败（耗时 636 秒、305 秒），失败点完全一致，属于确定性失败而非验证码偶发。
+  - 按「点商店 Sign in」思路修一版后重跑（run 42361822421）：衔接代码确实被执行，但日志停在 `Store sign-in hand-off skipped | Sign in control is unavailable`——全新 profile 下商店页头在等待窗口内根本没渲染出 `Sign in` 控件，因此该入口不可靠。
+- 影响范围：
+  - 只影响全新浏览器 profile 的场景（GitHub Actions、全新 Docker volume）。使用持久化 profile 的自托管部署已有 `EPIC_EG1`，不受影响。
+  - 该问题不是本分支此前改动引入的：上游 `master` 同样复现，上游 issue #30 记录的就是同一条失败链。
+- 根因判断：
+  - 账号门户登录只完成了 `client_id=007c0bfe154c4f5396648f013c641dcf`（账号门户）的 OAuth，整条流程从未发起商店 client `875a3b57d3a640a6b7f9b4e883463ab4` 的 OAuth，因此商店 token `EPIC_EG1` 不可能被签发。
+  - 启动商店 OAuth 的入口是商店页头的 `Sign in` 链接；账号已登录时它会先落到 `/id/login/switch-account` 账号选择页，点一下已记录的账号行才会带 code 回跳商店并签发 `EPIC_EG1`。
+  - 探针实测（自托管 profile 副本，删掉 `EPIC_EG1`/`REFRESH_EPIC_EG1` 复现该状态）：点 `Sign in` 后 3 秒进入 `switch-account`，点账号行 6 秒回跳商店，再过 2 秒 `isloggedin=true`，新增 `EPIC_EG1`、`REFRESH_EPIC_EG1`、`refreshTokenExpires`、`bearerTokenHash`，从点击到会话建立约 8 秒。
+  - 因此衔接不必依赖页头控件：`Sign in` 链接指向的 SSO 端点本身可以直连。探针实测（自托管 profile 副本，删掉 `EPIC_EG1`/`REFRESH_EPIC_EG1` 复现该状态）：直接打开 `https://www.epicgames.com/id/login/switch-account?lang=en-US&redirect_uri=...&client_id=<商店 client>`，账号选择页约 20 秒内渲染出账号行，点选后 6 秒回跳商店，随后 `isloggedin=true`，新增 `EPIC_EG1`、`REFRESH_EPIC_EG1`、`refreshTokenExpires`、`bearerTokenHash`。
+- 改动文件：
+  - `app/services/epic_authorization_service.py`
+- 处理结果：
+  - 新增模块级常量 `URL_STORE_SSO`：即商店 `Sign in` 按钮实际跳转的 SSO 端点（`redirect_uri` 指向免单页、`client_id` 为商店 web client），便于在商店页整页未渲染时直接访问，不必依赖页头控件。
+  - 新增 `_establish_store_session()`：先打开 `URL_STORE_SSO`，等待 `/id/login/switch-account` 账号选择页点选已记录的账号（多账号时按 `EPIC_EMAIL` 域名收窄），再轮询 `isloggedin` 直到 `true`。任一环不满足即返回 `False`，不影响已登录 profile 的正常路径。
+  - `_ensure_store_session_ready()` 在两处调用它：读到 `isloggedin=false` 时先尝试衔接，失败再抛出原有错误；`//egs-navigation` 读不到时先尝试衔接，再回退到原有的订单历史探测。
+  - 自托管（持久化 profile）路径不变：`isloggedin` 已为 `true` 时在第一步直接返回，不会额外点击或导航。
+  - Ruff（该文件 10 项既有告警）与 Black 检查结果与改动前基线一致，未引入新的静态检查问题；`python -m py_compile` 通过。按仓库规则未运行测试；Actions 端到端验证需在 fork 的全新 profile 上重跑确认。
