@@ -466,6 +466,34 @@ class EpicGames:
         return urls
 
     @staticmethod
+    async def _visible_hcaptcha_challenge_frame_urls(page: Page) -> list[str]:
+        # 只统计"挑战尺寸"的 hCaptcha iframe：命中时约 300x74 的勾选框控件不算题面。
+        return await EpicGames._visible_hcaptcha_frame_urls(page, min_width=250, min_height=200)
+
+    @staticmethod
+    async def _checkout_submit_visible(page: Page) -> bool:
+        # 提交按钮（"Add to library"/"Place Order"）位于 webPurchaseContainer iframe 内，
+        # page.locator() 在顶层文档里找不到它，需要逐 frame 检查。
+        for frame in page.frames:
+            with suppress(Exception):
+                if await frame.locator(CHECKOUT_SUBMIT_SELECTOR).first.is_visible():
+                    return True
+        return False
+
+    @staticmethod
+    async def _any_challenge_view_visible(page: Page) -> bool:
+        # 只有"可见的 challenge-view 且其中 <img> 可见"才说明题面已渲染；空容器不代表有题。
+        for frame in page.frames:
+            with suppress(Exception):
+                view = frame.locator("//div[@class='challenge-view']").first
+                if not await view.is_visible():
+                    continue
+                image = frame.locator("//div[@class='challenge-view']//img").first
+                if await image.is_visible():
+                    return True
+        return False
+
+    @staticmethod
     async def _is_locator_visible(locator) -> bool:
         with suppress(Exception):
             return await locator.first.is_visible()
@@ -1300,21 +1328,31 @@ class EpicGames:
         purchase_frame_markers = [*page_markers, "I AM HUMAN", "SKIP"]
         purchase_frame_marker_pairs = [("PLEASE TRY AGAIN", "VERIFY")]
 
-        visible_locators = [
+        # 结账弹窗在等待安全校验时也会把 hCaptcha 控件 iframe 挂在 DOM 里，隐藏的兜底模板
+        # 还带着下方这些文案，因此"文本或 iframe 存在"不足以判定"仍在验证"，必须先确认
+        # 挑战框本身是否可见、题面是否真的渲染出来。
+        for locator in (
             page.get_by_text("One more step", exact=False),
             page.get_by_text("Please complete a security check to continue", exact=False),
-            page.locator("//iframe[contains(@src, 'hcaptcha') or contains(@title, 'hCaptcha')]"),
-            page.frame_locator(PURCHASE_IFRAME_SELECTOR).first.locator(
-                "//iframe[contains(@src, 'hcaptcha') or contains(@title, 'hCaptcha')]"
-            ),
-        ]
-
-        for locator in visible_locators:
+        ):
             with suppress(Exception):
                 if await locator.first.is_visible():
                     return True
 
-        if await EpicGames._visible_hcaptcha_frame_urls(page):
+        challenge_frame_urls = await EpicGames._visible_hcaptcha_challenge_frame_urls(page)
+        if (
+            not challenge_frame_urls
+            and await EpicGames._checkout_submit_visible(page)
+            and not await EpicGames._any_challenge_view_visible(page)
+        ):
+            logger.success(
+                "Checkout submit button is visible and no challenge panel is present - "
+                "treating the security check as cleared | url='{}'",
+                page.url,
+            )
+            return False
+
+        if challenge_frame_urls:
             return True
 
         page_text = await EpicGames._page_text(page)
