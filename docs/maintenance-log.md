@@ -1414,3 +1414,19 @@
   - 限流仍先发送包含失败原因的摘要，再返回 `rate_limited` 正常结束；不会把限流记为领取成功，其他领取异常仍保持失败。未改动登录、hCaptcha、浏览器或 checkout 业务逻辑，保留 `master` 的 `70354be` 浏览器修复。
   - 对最新 PR 代码完成静态复审，并核对 WXPush 上游 `/wxsend` 响应协议；Ruff、Black、Python 语法、工作流 YAML 和 `git diff --check` 检查通过。
   - 按仓库规则，本轮未执行测试或真实微信投递。新增文件包含 29 个测试定义，但仍缺少发送异常、双渠道调度及限流返回值的集成回归覆盖；不能将此前浏览器修复的 70 项测试结果视为本 PR 的验证结果。
+
+### 2026-11-01 修正订单历史核对按 namespace 匹配导致的跨平台误判
+
+- 现象：
+  - 同一款游戏的 PC / Android / iOS SKU 共享同一个 `namespace`。`_is_promotion_in_order_history()` 用 `item.namespace == promotion.namespace or item.offerId == promotion.id` 判断「是否已领取」，只要 `namespace` 命中就直接返回 `True`。
+  - 因此只领到其中一个平台时，其余平台会被误判为已拥有。2026-10-24 实跑复现：iOS 的提交因验证码超时实际失败，却被 Android 的订单记录判成已领取，日志打印「Promotion confirmed via order history」，但商品页仍显示 `Get`、也没有收到订单邮件。
+- 根因判断：
+  - `namespace` 标识的是「哪一款游戏」（PC 与移动端 SKU 共用），`offerId` 才标识「哪一个平台的哪一个售卖单元」。用 `namespace` 做拥有判定等于跨平台混用，OR 关系让误判概率进一步放大。
+  - 这个判定同时用于即时结账后的收尾复核，误判会直接吞掉「其实没领到」的失败，比漏领更难排查。
+- 改动文件：
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 改为 `offerId` 优先精确匹配；仅当 `promotion` 拿不到 `offerId` 时才退回 `namespace` 兜底，保持对旧数据的兼容。
+  - 验证：修复后同一账号里「Android 已领、iOS 未领」的状态不再被判成已拥有；重新提交 iOS 后成功到账（订单历史出现对应 `offerId`、商品页 `In Library`、收到 Epic 订单邮件）。
+  - 纯判据修正，不改动领取、结账、验证码流程；按仓库规则未运行测试；`py_compile` 与 `git diff --check` 通过。
