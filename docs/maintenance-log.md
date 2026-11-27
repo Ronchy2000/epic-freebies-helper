@@ -1423,6 +1423,18 @@
 - 根因判断：
   - `namespace` 标识的是「哪一款游戏」（PC 与移动端 SKU 共用），`offerId` 才标识「哪一个平台的哪一个售卖单元」。用 `namespace` 做拥有判定等于跨平台混用，OR 关系让误判概率进一步放大。
   - 这个判定同时用于即时结账后的收尾复核，误判会直接吞掉「其实没领到」的失败，比漏领更难排查。
+
+### 2026-10-22 修正商品页购买按钮识别与「已拥有」误判
+
+- 现象：
+  - 商品页找不到购买按钮时，代码会退化成「整页文本扫描 `owned_markers`」，一旦命中就当作已拥有直接跳过。
+  - 慢速线路（实测出口约 100 KB/s）上商品页 hydration 慢，`Get` 按钮常常晚几秒才渲染出来，整页扫描随即命中 `UNAVAILABLE` / `COMING SOON`。
+  - 2026-10-21 的一次运行里，两款从未领取过的周免（`Bad Cheese`、`Agent A: A puzzle in disguise`）都被记录成 `Game already claimed / already in library (page text scan)` 跳过；但订单历史里没有它们，用户书库里也没有。
+  - Epic 商店改版后，商品页购买按钮的 `data-testid="purchase-cta-button"` 已不再出现，实测整页只剩 `ldesc` / `picture` / `teaser-ratings` / `video-rating-overlay` 四个 testid，真实结构是 `button.sidebarBuyButton`。
+- 根因判断：
+  - `page.locator("body").text_content()` 返回的是 DOM `textContent`，**包含 `<script>` 内容**。Epic 商品页内嵌一整本 i18n 字典，含 `Unavailable` / `Coming Soon` / `Add to Library` 字样，于是任何商品页都会命中 `owned_markers`，该分支等于永远返回「已拥有」。
+  - CTA 不可见时没有给 hydration 留时间，把「还没渲染出来」直接当成「页面里没有购买按钮」。
+  - 购买 CTA 选择器只覆盖旧版 testid，页面结构变化后找不到按钮，进一步把这个流程推向文本兜底。
 - 改动文件：
   - `app/services/epic_games_service.py`
   - `docs/maintenance-log.md`
@@ -1430,3 +1442,10 @@
   - 改为 `offerId` 优先精确匹配；仅当 `promotion` 拿不到 `offerId` 时才退回 `namespace` 兜底，保持对旧数据的兼容。
   - 验证：修复后同一账号里「Android 已领、iOS 未领」的状态不再被判成已拥有；重新提交 iOS 后成功到账（订单历史出现对应 `offerId`、商品页 `In Library`、收到 Epic 订单邮件）。
   - 纯判据修正，不改动领取、结账、验证码流程；按仓库规则未运行测试；`py_compile` 与 `git diff --check` 通过。
+
+  - 新增 `PURCHASE_CTA_SELECTORS`（新版 `sidebarBuyButton` 优先，保留旧 `purchase-cta-button`，再按 `Get` / `Add to Cart` / 中文文案兜底）与 `_find_purchase_cta()`；`_purchase_button_text()`、`_goto_product_page()` 的部分加载判定、`add_promotion_to_cart()` 三处统一改用它。
+  - CTA 不可见时先 `wait_for(state="visible", timeout=12000)`，仍然不可见才进入文本兜底。
+  - 文本兜底从 `text_content()` 改为 `inner_text()`，命中时记录命中的 marker 并把整页 HTML 落盘，便于事后区分「真已拥有」与「没加载完」。
+  - `purchase_debug` 除 `.png` / `.txt` 外新增 `<reason>-<stamp>.html`（`page.content()`），选择器失效时可直接核对真实 DOM。
+  - 跳过语义保持不变：真正已拥有或被禁用的游戏仍会被跳过，只是不再靠整页文本误判。
+  - 按仓库规则未执行测试；改动后 `py_compile`、行宽与 `git diff --check` 复核通过。
