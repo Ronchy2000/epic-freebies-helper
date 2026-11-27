@@ -548,6 +548,10 @@ def _extract_points_from_value(value: Any) -> list[dict[str, int]]:
             return points
         if boxes:
             return [_box_center_point(box) for box in boxes]
+        if value and all(isinstance(item, str) for item in value):
+            joined_points = _extract_points_from_text(", ".join(value))
+            if joined_points:
+                return joined_points
 
     if isinstance(value, str):
         parsed = _extract_literal_payload(value)
@@ -899,6 +903,11 @@ def _coerce_payload_for_schema(payload: dict[str, Any], schema: Any, text: str) 
             if boxes:
                 return _build_area_select_payload(
                     boxes, challenge_prompt=challenge_prompt, inferred_rule=inferred_rule
+                )
+            extracted_points = _extract_points_from_value(answer_payload)
+            if extracted_points:
+                return _build_points_payload(
+                    extracted_points, challenge_prompt=challenge_prompt, inferred_rule=inferred_rule
                 )
 
         coordinate_payload = _payload_value(payload, POINTS_ALIASES)

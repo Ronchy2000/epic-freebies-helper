@@ -1423,6 +1423,13 @@
 - 根因判断：
   - `namespace` 标识的是「哪一款游戏」（PC 与移动端 SKU 共用），`offerId` 才标识「哪一个平台的哪一个售卖单元」。用 `namespace` 做拥有判定等于跨平台混用，OR 关系让误判概率进一步放大。
   - 这个判定同时用于即时结账后的收尾复核，误判会直接吞掉「其实没领到」的失败，比漏领更难排查。
+- 改动文件：
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 改为 `offerId` 优先精确匹配；仅当 `promotion` 拿不到 `offerId` 时才退回 `namespace` 兜底，保持对旧数据的兼容。
+  - 验证：修复后同一账号里「Android 已领、iOS 未领」的状态不再被判成已拥有；重新提交 iOS 后成功到账（订单历史出现对应 `offerId`、商品页 `In Library`、收到 Epic 订单邮件）。
+  - 纯判据修正，不改动领取、结账、验证码流程；按仓库规则未运行测试；`py_compile` 与 `git diff --check` 通过。
 
 ### 2026-10-22 修正商品页购买按钮识别与「已拥有」误判
 
@@ -1439,10 +1446,6 @@
   - `app/services/epic_games_service.py`
   - `docs/maintenance-log.md`
 - 处理结果：
-  - 改为 `offerId` 优先精确匹配；仅当 `promotion` 拿不到 `offerId` 时才退回 `namespace` 兜底，保持对旧数据的兼容。
-  - 验证：修复后同一账号里「Android 已领、iOS 未领」的状态不再被判成已拥有；重新提交 iOS 后成功到账（订单历史出现对应 `offerId`、商品页 `In Library`、收到 Epic 订单邮件）。
-  - 纯判据修正，不改动领取、结账、验证码流程；按仓库规则未运行测试；`py_compile` 与 `git diff --check` 通过。
-
   - 新增 `PURCHASE_CTA_SELECTORS`（新版 `sidebarBuyButton` 优先，保留旧 `purchase-cta-button`，再按 `Get` / `Add to Cart` / 中文文案兜底）与 `_find_purchase_cta()`；`_purchase_button_text()`、`_goto_product_page()` 的部分加载判定、`add_promotion_to_cart()` 三处统一改用它。
   - CTA 不可见时先 `wait_for(state="visible", timeout=12000)`，仍然不可见才进入文本兜底。
   - 文本兜底从 `text_content()` 改为 `inner_text()`，命中时记录命中的 marker 并把整页 HTML 落盘，便于事后区分「真已拥有」与「没加载完」。
@@ -1543,3 +1546,50 @@
   - 跨平台判重（同一 namespace 下 PC / Android / iOS 被误判为已拥有）不在此 PR 范围内，另见独立修复 PR。
   - 已知限制：Android 商品全球可领，iOS 商品 Epic 仅面向欧盟区域提供，非欧盟账号可能在结账时被拒；因此 iOS 开关默认关闭，需先人工验证再开启。
   - 按仓库规则未执行测试；`py_compile`、`ruff`、`black -C -l 100`、`git diff --check` 复核通过。
+
+
+## 2026-11-27
+
+### 安全加固、CI 恢复、配置报错修复与社区 PR 合并收口（Refs #30, #31, #39, #41, #42, #43；合入 PR #33, #34, #37, #38）
+
+- 现象：
+  - **#41（高危凭据泄露 + 误报已拥有）**：运行异常时 Loguru 默认 `diagnose=True` 展开堆栈局部变量，导致 Epic 账号、密码或 API Key 以明文落盘至控制台及日志产物；商品页未定位到购买按钮或按钮被禁用时，仍可能通过整页文本扫描或无证据 disabled 误报为“已拥有”并跳过。
+  - **#31（购物车与结账资金安全）**：旧版 `_empty_cart()` 会自动点击 `Move to wishlist` 改动用户原有购物车，且即时结账/购物车结账提交前未强制校验结账面板可见总价是否为 0。
+  - **#39 / #42（Actions 必挂）**：GitHub Actions `ubuntu-latest` 迁移至 Ubuntu 26.04 后，锁定的 Playwright 1.53 拒绝在 `ubuntu26.04-x64` 安装 Firefox，工作流在依赖准备阶段即失败。
+  - **#43（GLM 配置报错误导）**：配置 `LLM_PROVIDER=glm` 但 `GLM_API_KEY` 未填或误填至 GitHub Variables 时，父类 `AgentConfig.validate_api_key` 在导入 `settings` 时即抛出 `GEMINI_API_KEY is required`，掩盖真实配置问题，也导致无环境变量时本地 `pytest` 无法收集。
+  - **#30（Camoufox 新版本属性报错 + GLM 点选格式变体 + 并发响应竞争）**：新下载的 Camoufox 二进制移除 `navigator.appCodeName` 后，`camoufox 0.4.11` 抛出 `UnknownProperty` 且未触发降级；GLM 点选偶发返回拆分字符串列表 `["(533", "508)", ...]` 导致 schema 校验失败；空 `/checkcaptcha/` 回调存在与已入队 `pass` 竞争风险。
+  - **PR 集成与细节缺口**：合并 PR #33、#34、#38、#37 后，发现 PR #34 中 `EpicAgent._check_orders()` 调用了不存在的 `self._capture_purchase_debug`、`EpicAuthorization` 与 `epic_totp_service` 中残留 3 处 Playwright 1.53 不兼容的 `is_visible(timeout=...)`、PR #33 的 12 秒渲染等待只等待首个选择器，以及 PC 订单去重尚未与 PR #36 统一为 `offerId` 优先。
+- 根因判断：
+  - Loguru 默认开启变量诊断且缺少全局敏感信息脱敏；异常堆栈直接输出局部变量与原始错误消息。
+  - 结账流程缺少针对非免费购物车与非零总价的硬护栏，拥有判定过度依赖宽泛文本匹配。
+  - `EpicSettings` 未覆盖父类 `AgentConfig` 的必填 `GEMINI_API_KEY` 字段校验器；工作流使用浮动的 `ubuntu-latest` 且未设置同仓库并发互斥组。
+  - `camoufox.utils.validate_config` 对已废弃指纹属性直接抛错；部分旧代码仍向 Playwright 1.53 的 `Locator.is_visible()` 传入 `timeout`。
+- 改动文件：
+  - `app/utils.py`
+  - `app/deploy.py`
+  - `app/settings.py`
+  - `app/services/browser_context.py`
+  - `app/services/epic_authorization_service.py`
+  - `app/services/epic_totp_service.py`
+  - `app/services/epic_games_service.py`
+  - `app/services/epic_mobile_service.py`（来自 PR #37）
+  - `app/extensions/llm_adapter.py`
+  - `app/extensions/hcaptcha_adapter.py`
+  - `.github/workflows/epic-gamer.yml`
+  - `.env.example`（来自 PR #37）
+  - `.gitignore`
+  - `tests/test_log_redaction.py`（新增）
+  - `tests/test_settings_config.py`（新增）
+  - `tests/test_mobile_and_session.py`（新增）
+  - `tests/test_checkout_state_machine.py`
+  - `tests/test_browser_context.py`
+  - `tests/test_glm_adapter.py`
+  - `tests/test_hcaptcha_adapter.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - **日志与凭据安全（#41）**：全量日志输出流（stdout、`runtime.log`、`error.log`）统一设置 `diagnose=False`、`backtrace=False`，通过标准库 `traceback.format_exception` + `redact_sensitive_text()` 对消息与异常堆栈进行双重脱敏（密码、多账号凭据、API Key、TOTP、代理密码、Telegram/WXPush Token 替换为 `***`，邮箱打码）；启动配置日志中对 `EPIC_EMAIL` 打码，并在浏览器启动前做账号与 LLM 凭据完整性校验。
+  - **购买按钮与严格拥有判定（PR #33 + #41）**：`_find_purchase_cta()` 在 12 秒等待期内轮询全部候选选择器；彻底移除整页文本扫描跳过逻辑与无证据 disabled 跳过逻辑，找不到按钮或无所有权文本的禁用按钮仅在订单历史存在对应 `offerId` 时视为已拥有，否则落盘证据并记为未确认失败。
+  - **购物车保护与 0 元结账护栏（#31）**：新增 `EpicUnsafeCheckoutError`；购物车结账前只读检查全部商品卡，发现任意非免费商品立即保留原购物车不动并中止，不再点击 `Move to wishlist`；即时结账与购物车结账提交前均强制校验可见 0 元总价或 `THIS IS FREE`，否则阻断点击并落盘。
+  - **CI 与配置（#39 / #42 / #43）**：工作流固定 `runs-on: ubuntu-24.04`，采纳 PR #27 的 `concurrency` 互斥组防止同账号并发认证，并完善 Actions 失败摘要分类与最近脱敏错误行展示；`EpicSettings` 覆写 `validate_api_key` 允许空值，由 `llm_configuration_error` 输出明确的 Secrets/Variables 配置诊断。
+  - **运行时与 PR 收口（PR #34 / #37 / #38 / #30）**：修正 PR #34 中 `self.epic_games._capture_purchase_debug` 调用路径与多账号选择器匹配优先级；PC 订单预检同步改为 `offerId` 优先匹配；清理 3 处 `is_visible(timeout=...)`；为 Camoufox 增加 `UnknownProperty` 属性过滤保护与降级识别；GLM 点选兼容拆分元组字符串列表；`hcaptcha_adapter` 为 `/checkcaptcha/` 处理增加按实例加锁与已入队 `pass` 保护（不整体合入存在冲突与回归风险的 PR #27）。
+  - **验证结果**（经用户授权运行本地单元测试）：在无任何 API Key 的干净环境下执行 `EPIC_BROWSER_SMOKE=1 .venv/bin/python -m pytest -q`，全部 **128 passed**（含脱敏测试、0 元/购物车护栏、配置测试、移动端/会话测试，以及 Playwright Firefox 与 Camoufox 本地离线 HTML 浏览器 Smoke 测试）；`scripts/check_hcaptcha_contract.py`、`ruff check`、变更文件 `black --check -C -l 100`、`py_compile`、workflow YAML 校验和 `git diff --check` 全部通过。未执行线上真实 Epic 账号登录与 hCaptcha 求解，需推送后或本地配置 `.env` 进行端到端验证。

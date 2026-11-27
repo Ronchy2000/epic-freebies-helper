@@ -125,7 +125,7 @@ async def _visible_indexes(page: Page, selector: str, limit: int) -> list[int]:
     count = await locator.count()
     for index in range(count):
         with suppress(Exception):
-            if await locator.nth(index).is_visible(timeout=250):
+            if await locator.nth(index).is_visible():
                 indexes.append(index)
                 if len(indexes) >= limit:
                     break
@@ -373,7 +373,7 @@ async def submit_totp_challenge(
     ):
         with suppress(Exception):
             button = page.locator(selector).first
-            if await button.is_visible(timeout=1000):
+            if await button.is_visible():
                 await button.click(timeout=2000)
                 clicked = True
                 break

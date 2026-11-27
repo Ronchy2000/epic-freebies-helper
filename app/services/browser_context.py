@@ -132,6 +132,8 @@ def _is_camoufox_bootstrap_error(err: Exception) -> bool:
         return "api.github.com/repos/daijro/camoufox/releases" in message
     if isinstance(err, RequestException):
         return "camoufox" in message or "api.github.com" in message
+    if type(err).__name__ in {"UnknownProperty", "InvalidPropertyType"}:
+        return True
     return any(
         marker in message
         for marker in (
@@ -139,9 +141,41 @@ def _is_camoufox_bootstrap_error(err: Exception) -> bool:
             "api.github.com/repos/daijro/camoufox/releases",
             "rate limit exceeded",
             "profile was last used with a newer version",
+            "unknown property",
             "browsertype.launch_persistent_context: target page, context or browser has been closed",
         )
     )
+
+
+def _install_camoufox_unknown_property_guard() -> None:
+    """Drop deprecated fingerprint keys (e.g. navigator.appCodeName) removed by newer Camoufox builds."""
+    try:
+        import camoufox.utils as camoufox_utils
+    except Exception:
+        return
+
+    original = getattr(camoufox_utils, "validate_config", None)
+    if original is None or getattr(original, "_epic_unknown_property_guard", False):
+        return
+
+    def guarded_validate_config(config_map: dict, path=None):
+        try:
+            property_types = camoufox_utils._load_properties(path=path)
+        except Exception:
+            return original(config_map, path=path)
+
+        unknown_keys = [key for key in list(config_map.keys()) if key not in property_types]
+        if unknown_keys:
+            for key in unknown_keys:
+                config_map.pop(key, None)
+            logger.warning(
+                "Ignoring unsupported Camoufox config properties not present in binary schema: {}",
+                sorted(unknown_keys),
+            )
+        return original(config_map, path=path)
+
+    guarded_validate_config._epic_unknown_property_guard = True
+    camoufox_utils.validate_config = guarded_validate_config
 
 
 async def _install_hsw_identity_route(context: BrowserContext) -> None:
@@ -169,6 +203,7 @@ async def open_browser_context(headless: bool | str) -> AsyncIterator[BrowserCon
         try:
             from camoufox import AsyncCamoufox
 
+            _install_camoufox_unknown_property_guard()
             camoufox_headless = (
                 False if headless == "virtual" and os.getenv("DISPLAY") else headless
             )

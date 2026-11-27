@@ -188,7 +188,7 @@ class EpicAuthorization:
             for selector in selectors:
                 with suppress(Exception):
                     locator = self.page.locator(selector).first
-                    if not await locator.is_visible(timeout=300):
+                    if not await locator.is_visible():
                         continue
                     await locator.click(timeout=2000, force=True)
                     await self.page.wait_for_timeout(1500)
@@ -691,9 +691,15 @@ class EpicAuthorization:
                 logger.warning("Store sign-in chooser exposed no account row")
                 return False
             if count > 1:
-                domain = (settings.EPIC_EMAIL or "").rsplit("@", 1)[-1].strip()
-                narrowed = rows.filter(has_text=domain) if domain else rows
-                rows = narrowed if await narrowed.count() >= 1 else rows
+                full_email = (settings.EPIC_EMAIL or "").strip()
+                domain = full_email.rsplit("@", 1)[-1].strip() if "@" in full_email else ""
+                for candidate_filter in (full_email, domain):
+                    if not candidate_filter:
+                        continue
+                    narrowed = rows.filter(has_text=candidate_filter)
+                    if await narrowed.count() >= 1:
+                        rows = narrowed
+                        break
             await rows.first.click(timeout=10000, no_wait_after=True)
             logger.info("Selected the remembered account on the store sign-in chooser")
             return True
