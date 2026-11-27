@@ -5,7 +5,7 @@ from pathlib import Path
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 from hcaptcha_challenger.agent import AgentConfig
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
 from extensions.hcaptcha_adapter import apply_hcaptcha_drag_patch
@@ -98,6 +98,20 @@ class EpicSettings(AgentConfig):
     CELERY_TASK_TIME_LIMIT: int = Field(default=1200)
     CELERY_TASK_SOFT_TIME_LIMIT: int = Field(default=900)
 
+    @field_validator("GEMINI_API_KEY", mode="before")
+    @classmethod
+    def validate_api_key(cls, v: object) -> object:
+        # Override AgentConfig's mandatory GEMINI_API_KEY validator so GLM-only runs
+        # and module imports do not crash with a misleading Gemini error before
+        # `llm_configuration_error` can report the actual provider mismatch.
+        if v is None:
+            return None
+        if isinstance(v, SecretStr):
+            return v if v.get_secret_value().strip() else None
+        if isinstance(v, str):
+            return v.strip() or None
+        return v
+
     @model_validator(mode="before")
     @classmethod
     def _bridge_provider_credentials(cls, raw_data):
@@ -178,15 +192,15 @@ class EpicSettings(AgentConfig):
         if provider == "glm" and self.GLM_API_KEY is None:
             return (
                 "Invalid LLM configuration: LLM_PROVIDER=glm but GLM_API_KEY is empty. "
-                "Set GLM_API_KEY in GitHub Actions Secrets, or switch LLM_PROVIDER to gemini "
-                "if you intend to use Gemini/AiHubMix."
+                "Add GLM_API_KEY under GitHub Actions Secrets (not Variables) or in .env, "
+                "or switch LLM_PROVIDER to gemini if you intend to use Gemini/AiHubMix."
             )
 
         if provider == "gemini" and self.GEMINI_API_KEY is None:
             return (
                 "Invalid LLM configuration: LLM_PROVIDER=gemini but GEMINI_API_KEY is empty. "
-                "Set GEMINI_API_KEY in GitHub Actions Secrets, or switch LLM_PROVIDER to glm "
-                "if you intend to use GLM."
+                "Add GEMINI_API_KEY under GitHub Actions Secrets (not Variables) or in .env, "
+                "or set LLM_PROVIDER=glm and configure GLM_API_KEY if you intend to use GLM."
             )
 
         return None
