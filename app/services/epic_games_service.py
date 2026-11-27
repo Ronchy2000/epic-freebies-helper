@@ -55,8 +55,22 @@ PURCHASE_CTA_SELECTORS = (
     "//button[@data-testid='purchase-cta-button']",
     "//button[.//span[normalize-space(text())='Get']]",
     "//button[.//span[normalize-space(text())='Add to Cart']]",
+    "//button[.//span[normalize-space(text())='In Library']]",
+    "//button[.//span[normalize-space(text())='Owned']]",
     "//button[.//span[normalize-space(text())='获取']]",
     "//button[.//span[normalize-space(text())='加入购物车']]",
+    "//button[.//span[normalize-space(text())='已在库中']]",
+)
+STRICT_OWNED_BUTTON_MARKERS = (
+    "IN LIBRARY",
+    "OWNED",
+    "ALREADY OWNED",
+    "IN YOUR LIBRARY",
+    "OWN THIS GAME",
+    "VIEW IN LIBRARY",
+    "GO TO LIBRARY",
+    "已在库中",
+    "已拥有",
 )
 CHECKOUT_BUTTON_TEXTS = ("PLACE ORDER", "ADD TO LIBRARY")
 CHECKOUT_BUTTON_PATTERN = re.compile(
@@ -71,6 +85,23 @@ CHECKOUT_SUBMIT_SELECTOR = ", ".join(
         'input[type="submit"][value*="Place Order" i]',
         'input[type="submit"][value*="Add to library" i]',
     )
+)
+CHECKOUT_TOTAL_PATTERN = re.compile(
+    r"(?:ORDER\s+TOTAL|TOTAL\s+PRICE|YOU\s+PAY|"
+    r"(?<!SUB)TOTAL(?!\s*(?:DISCOUNT|SAVINGS|TAX|VAT))|"
+    r"应付(?:金额)?|总计|合计)"
+    r"(?:\s*\([^)]{0,30}\))?\s*[:：]?\s*"
+    r"(FREE|免费|"
+    r"(?:[A-Z]{0,3}\s*[$€£¥₩₹₽₺₴₫₱฿]?\s*)"
+    r"(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:[.,]\d{1,2})?)"
+    r"(?:\s*[A-Z]{2,3})?)",
+    re.IGNORECASE,
+)
+NONZERO_PRICE_PATTERN = re.compile(
+    r"(?:[$€£¥₩₹₽₺₴₫₱฿]\s*(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:[.,]\d{1,2})?)"
+    r"|(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*"
+    r"(?:USD|EUR|GBP|CNY|RMB|JPY|KRW|CAD|AUD|HKD|TWD))",
+    re.IGNORECASE,
 )
 FREE_GAME_RATE_LIMIT_MARKERS = (
     "YOUR ACCOUNT IS UNABLE TO DOWNLOAD ANY MORE FREE GAMES",
@@ -87,6 +118,97 @@ class EpicFreeGameRateLimitError(RuntimeError):
 
 class EpicSessionExpiredError(RuntimeError):
     """Epic 账号会话已失效（账号层 auth 过期），需要重新登录。"""
+
+
+class EpicUnsafeCheckoutError(RuntimeError):
+    """Unattended checkout blocked to protect existing cart items or prevent paid charges."""
+
+
+def _parse_price_amount(raw_number: str) -> float | None:
+    cleaned = (raw_number or "").strip()
+    if not cleaned:
+        return None
+    if "," in cleaned and "." in cleaned:
+        cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        parts = cleaned.split(",")
+        if len(parts) == 2 and len(parts[1]) <= 2:
+            cleaned = f"{parts[0]}.{parts[1]}"
+        else:
+            cleaned = cleaned.replace(",", "")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _evaluate_checkout_total_safety(checkout_text: str) -> tuple[bool, str]:
+    """Require an explicit visible zero total (or 'THIS IS FREE') before unattended submit."""
+    normalized = " ".join((checkout_text or "").upper().split())
+    if not normalized:
+        return False, "checkout container text is empty; cannot verify a zero total"
+
+    zero_matches: list[str] = []
+    nonzero_matches: list[str] = []
+
+    for match in CHECKOUT_TOTAL_PATTERN.finditer(normalized):
+        token = (match.group(1) or "").strip()
+        number_str = match.group(2)
+        if token in {"FREE", "免费"}:
+            zero_matches.append(match.group(0))
+            continue
+        amount = _parse_price_amount(number_str or "")
+        if amount is None:
+            continue
+        if amount == 0.0:
+            zero_matches.append(match.group(0))
+        else:
+            nonzero_matches.append(match.group(0))
+
+    if nonzero_matches:
+        return False, f"non-zero checkout total detected ({', '.join(nonzero_matches)})"
+
+    if zero_matches:
+        return True, f"verified visible zero total ({zero_matches[-1]})"
+
+    if "THIS IS FREE" in normalized or "免费获取" in normalized:
+        return True, "verified free instant checkout ('THIS IS FREE')"
+
+    return False, "no visible zero total or free-checkout confirmation found before submit"
+
+
+def _is_cart_card_free(card_text: str) -> bool:
+    """Return True only when a cart offer card explicitly indicates a free item and no paid price."""
+    normalized = " ".join((card_text or "").upper().split())
+    if not normalized:
+        return False
+
+    has_nonzero_price = False
+    for match in NONZERO_PRICE_PATTERN.finditer(normalized):
+        amount = _parse_price_amount(match.group(1) or match.group(2) or "")
+        if amount is not None and amount > 0.0:
+            has_nonzero_price = True
+            break
+
+    has_free_label = bool(re.search(r"\bFREE\b", normalized)) or "免费" in normalized
+    if has_free_label and not has_nonzero_price:
+        return True
+
+    # Handle cards rendered as "$0.00" without the word "Free"
+    has_zero_price = any(
+        _parse_price_amount(match.group(1) or match.group(2) or "") == 0.0
+        for match in NONZERO_PRICE_PATTERN.finditer(normalized)
+    )
+    return has_zero_price and not has_nonzero_price
+
+
+def _is_promotion_owned_in_orders(promotion: PromotionGame, orders: List[OrderItem]) -> bool:
+    """Match an order item by offerId first, falling back to namespace only when offerId is absent."""
+    if promotion.id:
+        return any(item.offerId == promotion.id for item in orders)
+    if promotion.namespace:
+        return any(item.namespace == promotion.namespace for item in orders)
+    return False
 
 
 def get_promotions() -> List[PromotionGame]:
@@ -334,7 +456,7 @@ class EpicAgent:
         # 收尾复核时失败。探测失败就直接失败，并且把现场证据落盘。
         if not await self._sync_order_history():
             with suppress(Exception):
-                await self._capture_purchase_debug(
+                await self.epic_games._capture_purchase_debug(
                     self.page, "session_probe_failed", URL_ORDER_HISTORY
                 )
             raise EpicSessionExpiredError(
@@ -345,8 +467,12 @@ class EpicAgent:
 
         self._namespaces = self._namespaces or [order.namespace for order in self._orders]
         all_promotions = get_promotions()
-        claimed_promotions = [p for p in all_promotions if p.namespace in self._namespaces]
-        self._promotions = [p for p in all_promotions if p.namespace not in self._namespaces]
+        claimed_promotions = [
+            p for p in all_promotions if _is_promotion_owned_in_orders(p, self._orders)
+        ]
+        self._promotions = [
+            p for p in all_promotions if not _is_promotion_owned_in_orders(p, self._orders)
+        ]
 
         for promotion in claimed_promotions:
             logger.success(
@@ -406,7 +532,11 @@ class EpicAgent:
             try:
                 await self.epic_games.collect_weekly_games(self._promotions)
             except Exception as e:
-                logger.exception(e)
+                logger.error(
+                    "Weekly free games collection failed | error_type={} | detail={}",
+                    type(e).__name__,
+                    e,
+                )
                 raise
 
         logger.debug("All tasks in the workflow have been completed")
@@ -453,22 +583,24 @@ class EpicGames:
         return "\n".join(filter(None, chunks))
 
     @staticmethod
-    async def _find_purchase_cta(page: Page):
-        """返回第一个可见的商品页购买按钮。
-
-        都不可见时返回新版选择器的 locator，交给调用方继续等待它渲染出来，
-        不要把“还没渲染”直接当成“页面里没有购买按钮”。
-        """
-        for selector in PURCHASE_CTA_SELECTORS:
-            candidates = page.locator(selector)
-            with suppress(Exception):
-                for index in range(min(await candidates.count(), 5)):
-                    candidate = candidates.nth(index)
-                    if await candidate.is_visible():
-                        logger.debug(
-                            "Purchase CTA located | selector='{}' index={}", selector, index
-                        )
-                        return candidate
+    async def _find_purchase_cta(page: Page, timeout_ms: int = 0):
+        """返回第一个可见的商品页购买按钮；timeout_ms > 0 时轮询所有候选选择器等待渲染。"""
+        deadline = time.monotonic() + max(timeout_ms, 0) / 1000
+        while True:
+            for selector in PURCHASE_CTA_SELECTORS:
+                candidates = page.locator(selector)
+                with suppress(Exception):
+                    for index in range(min(await candidates.count(), 5)):
+                        candidate = candidates.nth(index)
+                        if await candidate.is_visible():
+                            logger.debug(
+                                "Purchase CTA located | selector='{}' index={}", selector, index
+                            )
+                            return candidate
+            remaining_ms = int((deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                break
+            await page.wait_for_timeout(min(400, remaining_ms))
         return page.locator(PURCHASE_CTA_SELECTORS[0]).first
 
     @staticmethod
@@ -1739,17 +1871,42 @@ class EpicGames:
 
         return " | ".join(parts) if parts else "state_unavailable"
 
-    async def _submit_place_order(self, payment_btn, url: str) -> bool:
+    async def _assert_checkout_zero_total(
+        self, container: PurchaseContainer | None, url: str
+    ) -> None:
+        checkout_text = ""
+        if container is not None:
+            with suppress(Exception):
+                checkout_text = await container.locator("body").inner_text(timeout=3000)
+        if not checkout_text:
+            checkout_text = await self._purchase_frame_text(self.page)
+
+        is_safe, reason = _evaluate_checkout_total_safety(checkout_text)
+        if not is_safe:
+            logger.error(
+                "Blocked unattended checkout submit: {} | url='{}'",
+                reason,
+                url,
+            )
+            await self._capture_purchase_debug(self.page, "unsafe_checkout_total", url)
+            raise EpicUnsafeCheckoutError(
+                f"Refused to submit checkout without a verified zero total ({reason}) | url={url}"
+            )
+        logger.debug("Checkout zero-total guard passed: {} | url='{}'", reason, url)
+
+    async def _submit_place_order(
+        self, payment_btn, url: str, *, wpc: PurchaseContainer | None = None
+    ) -> bool:
         with suppress(Exception):
             await payment_btn.scroll_into_view_if_needed(timeout=2000)
 
-        async def current_payment_button():
+        async def current_payment_target():
             with suppress(Exception):
-                _wpc, refreshed_btn = await self._active_purchase_container(
+                refreshed_wpc, refreshed_btn = await self._active_purchase_container(
                     self.page, place_order_timeout=1000, confirm_timeout=500
                 )
-                return refreshed_btn
-            return payment_btn
+                return refreshed_wpc, refreshed_btn
+            return wpc, payment_btn
 
         click_attempts = (
             ("standard", lambda btn: btn.click(timeout=5000)),
@@ -1760,7 +1917,8 @@ class EpicGames:
         )
 
         for name, action in click_attempts:
-            active_btn = await current_payment_button()
+            active_wpc, active_btn = await current_payment_target()
+            await self._assert_checkout_zero_total(active_wpc, url)
             before_state = await self._payment_button_state(active_btn)
             before_overlay = await self._visible_talon_overlay_id(self.page)
             logger.debug(
@@ -1923,7 +2081,7 @@ class EpicGames:
                     if state != "checkout" or payload is None:
                         break
 
-                _wpc, payment_btn = payload
+                wpc, payment_btn = payload
                 submission_attempt += 1
                 logger.debug(
                     "Place Order submission cycle ({}/{}) | button_text={}",
@@ -1931,7 +2089,7 @@ class EpicGames:
                     4,
                     await payment_btn.text_content(),
                 )
-                click_progressed = await self._submit_place_order(payment_btn, url)
+                click_progressed = await self._submit_place_order(payment_btn, url, wpc=wpc)
                 if not click_progressed:
                     logger.warning(
                         "Place Order submission produced no immediate progress; falling back to checkout probes. {}",
@@ -2009,6 +2167,8 @@ class EpicGames:
                 "Epic free-game redemption rate limit detected; stopping this run - {}", url
             )
             raise
+        except EpicUnsafeCheckoutError:
+            raise
         except Exception as err:
             logger.warning(f"Instant checkout warning: {err}")
             await self._capture_purchase_debug(page, "instant_checkout_warning", url)
@@ -2029,15 +2189,6 @@ class EpicGames:
         has_pending_cart_items = False
         instant_claimed = 0
         failed_urls: List[str] = []
-        owned_markers = [
-            "IN LIBRARY",
-            "OWNED",
-            "ALREADY OWNED",
-            "UNAVAILABLE",
-            "COMING SOON",
-            "IN YOUR LIBRARY",
-            "OWN THIS GAME",
-        ]
 
         for promotion in promotions:
             url = promotion.url
@@ -2065,67 +2216,69 @@ class EpicGames:
             # 🔥 新思路：彻底解决按钮识别问题 (黑名单机制 + 智能点击)
             # ------------------------------------------------------------
 
-            # 1. 找到当前商店的购买 CTA（新版是 sidebarBuyButton，旧版是 purchase-cta-button）
-            purchase_btn = await self._find_purchase_cta(page)
+            # 1. 找到当前商店的购买 CTA（轮询全部候选选择器，避免慢速线路未渲染完误判）
+            purchase_btn = await self._find_purchase_cta(page, timeout_ms=12000)
 
-            # 2. 如果没找到主按钮，尝试找“库中”状态
-            try:
+            # 2. 如果等待后依然未找到可见购买按钮：
+            #    不再通过扫描整页文本来假定“已拥有”（见 Issue #41），仅以订单历史中的
+            #    offerId 记录作为权威拥有证据；否则保存现场并标记为未确认失败。
+            cta_visible = False
+            with suppress(Exception):
                 cta_visible = await purchase_btn.is_visible()
-                if not cta_visible:
-                    # 慢速线路上 CTA 常常晚几秒才渲染出来，先给它一次机会再判定
-                    with suppress(Exception):
-                        await purchase_btn.wait_for(state="visible", timeout=12000)
-                    cta_visible = await purchase_btn.is_visible()
-                if not cta_visible:
-                    # 整页文本只能作为最后的兜底判据：
-                    #   - 必须用 inner_text()，text_content() 会把 <script> 里整本 i18n
-                    #     字典一起读出来（含 Unavailable / Coming Soon），任何商品页都会命中；
-                    #   - 命中后把命中词和 HTML 落盘，便于事后区分“真已拥有”和“没加载完”。
-                    all_text = (await page.locator("body").inner_text() or "").upper()
-                    matched = [marker for marker in owned_markers if marker in all_text]
-                    if matched:
-                        logger.warning(
-                            "Page text scan matched owned markers {} - title='{}' url='{}'; "
-                            "capturing evidence before skipping",
-                            matched,
-                            game_title,
-                            url,
-                        )
-                        with suppress(Exception):
-                            await self._capture_purchase_debug(page, f"textscan_{matched[0]}", url)
-                        continue
-                    logger.warning(f"Could not find any purchase button - {url=}")
-                    await self._capture_purchase_debug(page, "button_missing", url)
-                    failed_urls.append(url)
+            if not cta_visible:
+                if await self._is_promotion_in_order_history(promotion):
+                    logger.success(
+                        "Purchase button not visible, but promotion is confirmed in order history - "
+                        "title='{}' url='{}'",
+                        game_title,
+                        url,
+                    )
                     continue
-            except Exception:
-                pass
+                logger.warning(
+                    "Could not locate a visible purchase CTA button; marking promotion as "
+                    "unconfirmed instead of assuming owned - title='{}' url='{}'",
+                    game_title,
+                    url,
+                )
+                await self._capture_purchase_debug(page, "button_missing", url)
+                failed_urls.append(url)
+                continue
 
             # 3. 获取按钮上下文
-            btn_text, container_text, disabled, aria_disabled = (
+            btn_text, _container_text, disabled, aria_disabled = (
                 await self._log_purchase_button_context(page, purchase_btn, url)
             )
             btn_text_upper = btn_text.upper()
-            container_text_upper = container_text.upper()
 
             logger.debug(f"👉 Found Button: '{btn_text}'")
 
-            # 4. 黑名单检查：只有这些情况绝对不能点
-            # 如果是 'IN LIBRARY', 'OWNED', 'UNAVAILABLE', 'COMING SOON' -> 跳过
-            if disabled is not None or aria_disabled == "true":
-                logger.success(
-                    "Game already claimed / unavailable (purchase button disabled) - "
-                    f"title='{game_title}' text='{btn_text}' url='{url}'"
-                )
-                await self._capture_purchase_debug(page, "button_disabled", url)
-                continue
-
-            if any(marker in btn_text_upper for marker in owned_markers) or any(
-                marker in container_text_upper for marker in owned_markers
-            ):
+            # 4. 严格拥有判断：仅当按钮本身明确显示已拥有文案时才直接跳过；
+            #    普通 disabled（如 Loading / Unavailable / Coming Soon）不能直接当成已入库。
+            if any(marker in btn_text_upper for marker in STRICT_OWNED_BUTTON_MARKERS):
                 logger.success(
                     f"Game already claimed / already in library - title='{game_title}' text='{btn_text}' url='{url}'"
                 )
+                continue
+
+            if disabled is not None or aria_disabled == "true":
+                await self._capture_purchase_debug(page, "button_disabled", url)
+                if await self._is_promotion_in_order_history(promotion):
+                    logger.success(
+                        "Purchase button is disabled and promotion is confirmed in order history - "
+                        "title='{}' text='{}' url='{}'",
+                        game_title,
+                        btn_text,
+                        url,
+                    )
+                    continue
+                logger.warning(
+                    "Purchase button is disabled without ownership evidence; marking unconfirmed - "
+                    "title='{}' text='{}' url='{}'",
+                    game_title,
+                    btn_text,
+                    url,
+                )
+                failed_urls.append(url)
                 continue
 
             # 5. 白名单检查 (Add to Cart 特殊处理)
@@ -2163,27 +2316,41 @@ class EpicGames:
 
         return has_pending_cart_items, instant_claimed, failed_urls
 
-    async def _empty_cart(self, page: Page, wait_rerender: int = 30) -> bool | None:
-        has_paid_free = False
-        try:
-            cards = await page.query_selector_all("//div[@data-testid='offer-card-layout-wrapper']")
-            for card in cards:
-                is_free = await card.query_selector("//span[text()='Free']")
-                if not is_free:
-                    has_paid_free = True
-                    wishlist_btn = await card.query_selector(
-                        "//button//span[text()='Move to wishlist']"
-                    )
-                    await wishlist_btn.click()
+    async def _ensure_cart_contains_only_free_items(self, page: Page) -> None:
+        """Preserve any pre-existing cart contents and block unattended checkout if paid items exist."""
+        cards = await page.query_selector_all("//div[@data-testid='offer-card-layout-wrapper']")
+        if not cards:
+            cards = await page.query_selector_all("[data-testid*='offer-card']")
+        if not cards:
+            await self._capture_purchase_debug(page, "cart_items_unverifiable", URL_CART)
+            raise EpicUnsafeCheckoutError(
+                "Could not verify Epic cart offer cards before checkout; "
+                "aborting unattended cart checkout to preserve existing cart state."
+            )
 
-            if has_paid_free and wait_rerender:
-                wait_rerender -= 1
-                await page.wait_for_timeout(2000)
-                return await self._empty_cart(page, wait_rerender)
-            return True
-        except TimeoutError as err:
-            logger.warning("Failed to empty shopping cart", err=err)
-            return False
+        non_free_items: list[str] = []
+        for index, card in enumerate(cards, 1):
+            card_text = ""
+            with suppress(Exception):
+                card_text = (await card.inner_text()) or ""
+            if not card_text:
+                with suppress(Exception):
+                    card_text = (await card.text_content()) or ""
+            if not _is_cart_card_free(card_text):
+                snippet = " ".join(card_text.split())[:120] or f"card#{index}"
+                non_free_items.append(snippet)
+
+        if non_free_items:
+            logger.error(
+                "Pre-existing non-free item(s) detected in Epic cart ({}); preserving cart "
+                "untouched and aborting unattended cart checkout.",
+                len(non_free_items),
+            )
+            await self._capture_purchase_debug(page, "cart_preserved_non_free", URL_CART)
+            raise EpicUnsafeCheckoutError(
+                "Epic cart contains non-free item(s); existing cart contents were preserved "
+                "untouched and unattended cart checkout was aborted."
+            )
 
     async def _purchase_free_game(self, max_attempts: int = 3):
         last_error: Exception | None = None
@@ -2191,8 +2358,8 @@ class EpicGames:
         for attempt in range(1, max_attempts + 1):
             try:
                 await self.page.goto(URL_CART, wait_until="domcontentloaded")
-                logger.debug("Move ALL paid games from the shopping cart out")
-                await self._empty_cart(self.page)
+                logger.debug("Verifying Epic cart contains only free items before checkout")
+                await self._ensure_cart_contains_only_free_items(self.page)
 
                 agent = AgentV(page=self.page, agent_config=settings)
                 await self.page.click("//button//span[text()='Check Out']")
@@ -2200,6 +2367,7 @@ class EpicGames:
 
                 logger.debug("Move to webPurchaseContainer iframe")
                 wpc, payment_btn = await self._active_purchase_container(self.page)
+                await self._assert_checkout_zero_total(wpc, URL_CART)
                 logger.debug("Click payment button")
                 await self._uk_confirm_order(wpc)
                 challenge_signal = await wait_for_challenge_signal(
@@ -2210,6 +2378,8 @@ class EpicGames:
                 if challenge_signal is ChallengeSignal.SUCCESS:
                     return
                 raise RuntimeError(f"cart purchase hCaptcha returned {challenge_signal.value}")
+            except (EpicUnsafeCheckoutError, EpicFreeGameRateLimitError):
+                raise
             except Exception as err:
                 last_error = err
                 logger.warning(

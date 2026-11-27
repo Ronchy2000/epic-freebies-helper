@@ -521,3 +521,174 @@ def test_initial_security_state_refreshes_checkout_before_submission(monkeypatch
 
     assert claimed is True
     assert submissions == 1
+
+
+@pytest.mark.parametrize(
+    ("checkout_text", "expected_safe"),
+    [
+        ("THIS IS FREE\nAdd it to your library\nAdd to Library", True),
+        ("Order Summary\nPrice $19.99\nSale Discount -$19.99\nTotal $0.00\nPlace Order", True),
+        ("Order Summary\nPrice €14,99\nDiscount -€14,99\nTotal €0,00", True),
+        ("订单摘要\n价格 ¥99.00\n折扣 -¥99.00\n总计 ¥0.00", True),
+        ("Order Summary\nYou Pay\nFree\nPlace Order", True),
+        ("Order Summary\nTotal $19.99\nPlace Order", False),
+        ("Order Summary\nTotal Tax $0.00\nTotal $9.99\nPlace Order", False),
+        ("Order Summary\nTotal €4,99\nPlace Order", False),
+        ("订单摘要\n总计 ¥68.00", False),
+        ("Checkout\nPlace Order", False),
+        ("", False),
+    ],
+)
+def test_evaluate_checkout_total_safety(checkout_text, expected_safe):
+    is_safe, _reason = epic_games_service._evaluate_checkout_total_safety(checkout_text)
+    assert is_safe is expected_safe
+
+
+def test_submit_place_order_blocks_nonzero_checkout_total(monkeypatch):
+    clicked = False
+
+    class PaidButton:
+        async def scroll_into_view_if_needed(self, **kwargs):
+            pass
+
+        async def click(self, **kwargs):
+            nonlocal clicked
+            clicked = True
+
+    class PaidContainer:
+        def locator(self, selector):
+            assert selector == "body"
+            return TextBody("Order Summary\nGame A $19.99\nTotal $19.99\nPlace Order")
+
+    page = FakePage()
+    game = EpicGames(page)
+    paid_wpc = PaidContainer()
+    paid_btn = PaidButton()
+
+    async def active_container(*args, **kwargs):
+        return paid_wpc, paid_btn
+
+    async def noop_debug(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(game, "_active_purchase_container", active_container)
+    monkeypatch.setattr(game, "_capture_purchase_debug", noop_debug)
+
+    with pytest.raises(epic_games_service.EpicUnsafeCheckoutError, match="zero total"):
+        asyncio.run(game._submit_place_order(paid_btn, "https://example.test/paid", wpc=paid_wpc))
+
+    assert clicked is False
+
+
+def test_cart_guard_preserves_existing_paid_items_and_blocks_checkout(monkeypatch):
+    wishlist_clicked = False
+
+    class FakeCard:
+        def __init__(self, text):
+            self._text = text
+
+        async def inner_text(self):
+            return self._text
+
+        async def query_selector(self, _sel):
+            async def _click():
+                nonlocal wishlist_clicked
+                wishlist_clicked = True
+
+            return SimpleNamespace(click=_click)
+
+    class CartPage(FakePage):
+        async def query_selector_all(self, _selector):
+            return [FakeCard("Freebie Game\nFree"), FakeCard("Paid Wishlist Game\n$29.99")]
+
+    page = CartPage()
+    game = EpicGames(page)
+
+    async def noop_debug(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(game, "_capture_purchase_debug", noop_debug)
+
+    with pytest.raises(epic_games_service.EpicUnsafeCheckoutError, match="non-free"):
+        asyncio.run(game._ensure_cart_contains_only_free_items(page))
+
+    assert wishlist_clicked is False
+
+
+def test_missing_purchase_cta_does_not_falsely_skip_as_owned_from_page_text(monkeypatch):
+    promotion = epic_games_service.PromotionGame(
+        title="Unclaimed Game",
+        id="offer-unclaimed",
+        namespace="b" * 32,
+        description="",
+        offerType="BASE_GAME",
+        url="https://store.epicgames.com/en-US/p/unclaimed-game",
+    )
+
+    class ProductPage(FakePage):
+        url = promotion.url
+
+        async def title(self):
+            return "Unclaimed Game | Epic Games Store"
+
+        def locator(self, selector):
+            if selector == "body":
+                return TextBody("Coming Soon DLC In Library Unavailable")
+            return MissingLocator()
+
+    page = ProductPage()
+    game = EpicGames(page)
+
+    async def goto_ok(*args, **kwargs):
+        return True
+
+    async def not_in_orders(_promo):
+        return False
+
+    async def noop_debug(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(game, "_goto_product_page", goto_ok)
+    monkeypatch.setattr(
+        game,
+        "_find_purchase_cta",
+        staticmethod(lambda _p, timeout_ms=0: asyncio.sleep(0, result=MissingLocator())),
+    )
+    monkeypatch.setattr(game, "_is_promotion_in_order_history", not_in_orders)
+    monkeypatch.setattr(game, "_capture_purchase_debug", noop_debug)
+
+    has_cart, instant_claimed, failed_urls = asyncio.run(
+        game.add_promotion_to_cart(page, [promotion])
+    )
+
+    assert has_cart is False
+    assert instant_claimed == 0
+    assert failed_urls == [promotion.url]
+
+
+def test_phantom_checkout_security_check_clears_when_submit_visible_without_challenge(monkeypatch):
+    class PhantomPage(FakePage):
+        url = "https://store.epicgames.com/en-US/p/demo"
+        frames = []
+
+        def get_by_text(self, *_args, **_kwargs):
+            return MissingLocator()
+
+    page = PhantomPage()
+
+    async def no_challenge_frames(_page):
+        return []
+
+    async def submit_visible(_page):
+        return True
+
+    async def no_challenge_view(_page):
+        return False
+
+    monkeypatch.setattr(
+        EpicGames, "_visible_hcaptcha_challenge_frame_urls", staticmethod(no_challenge_frames)
+    )
+    monkeypatch.setattr(EpicGames, "_checkout_submit_visible", staticmethod(submit_visible))
+    monkeypatch.setattr(EpicGames, "_any_challenge_view_visible", staticmethod(no_challenge_view))
+
+    assert asyncio.run(EpicGames._is_checkout_security_check_visible(page)) is False
