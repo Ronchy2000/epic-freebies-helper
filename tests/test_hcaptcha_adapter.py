@@ -272,5 +272,27 @@ def test_nonempty_checkcaptcha_response_cancels_pending_failure():
         return agent._captcha_response_queue.empty()
 
     assert asyncio.run(scenario()) is True
-    _detect_clickable_grid_bounds,
-    _point_answer_validation_error,
+
+
+def test_empty_checkcaptcha_response_preserves_already_queued_pass():
+    from hcaptcha_challenger.models import CaptchaResponse
+
+    class EmptyResponse:
+        url = "https://api.hcaptcha.com/checkcaptcha/example"
+        status = 200
+
+        @staticmethod
+        async def body():
+            return b""
+
+    async def scenario():
+        agent = SimpleNamespace(_captcha_response_queue=asyncio.Queue())
+        agent._captcha_response_queue.put_nowait(CaptchaResponse.model_validate({"pass": True}))
+        handled = await _queue_empty_checkcaptcha_response(agent, EmptyResponse(), grace_seconds=0)
+        queued = await asyncio.wait_for(agent._captcha_response_queue.get(), timeout=0.1)
+        return handled, queued
+
+    handled, queued = asyncio.run(scenario())
+
+    assert handled is True
+    assert queued.is_pass is True

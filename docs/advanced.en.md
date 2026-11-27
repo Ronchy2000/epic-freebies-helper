@@ -191,6 +191,7 @@ This round came from multiple real user artifact bundles, not from a single isol
 | Repeated login failure | `Timed out waiting for Epic login outcome`, `btoa is read-only`, `Challenge execution timed out` | hCaptcha is still visible, or the page is polluted by a previous solve attempt | Retry login challenge in smaller phases; rebuild the page and clear cookies after a failed login attempt |
 | Product page navigation failure | `Page.goto: Timeout 30000ms exceeded` | The usable page body may already be present, while `load` is blocked by images, scripts, or third-party resources | Use `domcontentloaded`; continue when a partially loaded page is usable |
 | Visible `Get` button click hangs | `Locator.click: Timeout 10000ms exceeded`, while the screenshot shows the button | Playwright is waiting for the click action to finish, but the page does not return in the expected way | Layer standard click, dispatch, DOM click, coordinate click, and force click |
+| Browser driver exits during claiming after a successful login | Raw job logs show `TypeError: Cannot read properties of undefined (reading 'childFrames')`, then `Connection closed while reading from the driver` | Firefox reports a late navigation for an iframe that has already detached, crashing the Playwright Node driver; this is not a failed captcha | Install a narrowly scoped stale-frame navigation guard at driver startup; check checkout progress before retrying `Get` to avoid duplicate submissions |
 | Checkout progressed but is unconfirmed | The page remains on `Place Order` or a security check | A successful click is not the same as a successful claim | Continue observing order confirmation, button state, checkout iframe, and order history |
 | Config contains trailing whitespace | Model names in logs look like `glm-4.6v\n` | GitHub Secrets or copied values can contain whitespace | Strip string settings centrally |
 
@@ -214,6 +215,14 @@ This round came from multiple real user artifact bundles, not from a single isol
 
 4. **Failures must leave artifacts**  
    Navigation failure, missing button, ineffective click, and unconfirmed checkout should save screenshots and text. Future fixes should be based on artifact classes instead of guessing more selectors.
+
+### Diagnosing and Verifying Firefox Driver Crashes
+
+- If the last error is only `Page.screenshot: Connection closed while reading from the driver`, inspect earlier raw Actions job logs. Node driver errors may not reach Python's `error.log`. Screenshot failures should produce warnings without replacing the original claim error.
+- The repository's `playwright_frame_guard.cjs` is loaded at driver startup without modifying `.venv` files or global `NODE_OPTIONS`. It ignores navigation events only for missing frames. It does not convert disconnections, authentication failures, or unconfirmed claims into success.
+- The guard relies on the locked Playwright version's internal Firefox interface. Revalidate it when upgrading Playwright; a newer version alone is not evidence that this race is fixed.
+- Follow the repository's testing rules and obtain explicit authorization for the current task before running tests. Targeted regression command: `uv run pytest -q tests/test_playwright_runtime.py tests/test_checkout_state_machine.py`.
+- After installing Camoufox and Playwright Firefox, run `EPIC_BROWSER_SMOKE=1 uv run pytest -q tests/test_browser_runtime_smoke.py` to verify checkout interaction after repeated iframe replacement in real browsers. This check uses local HTML and isolated profiles, without logging into an account. It does not replace a real Epic claim and library verification.
 
 ### Implementation Points
 

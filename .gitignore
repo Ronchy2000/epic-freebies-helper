@@ -141,3 +141,4 @@ app/volumes
 .claude/
 .DS_Store
 .forensics/
+docs/*.local.md

@@ -1,0 +1,49 @@
+name: Feature request (English)
+description: Suggest a new feature, optional integration, or improvement to the existing experience
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for feature requests. A failed Actions run URL and reproduction steps are not required.
+        Search existing issues and pull requests before submitting to avoid duplicates. Use the Bug report form if an existing feature is not working.
+        Do not include account passwords, tokens, API keys, or other sensitive information.
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case and motivation
+      description: What problem would this solve? What is inconvenient about the current workflow?
+      placeholder: For example, I would like to see claim results in my preferred notification channel without opening Actions logs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed feature and expected outcome
+      description: Describe how you would use the feature and what would meet your needs. Implementation code is not required.
+      placeholder: For example, add an optional WeChat channel that sends a claim summary after each run and sends nothing when unconfigured.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Are there existing solutions? What are their limitations?
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Configuration and compatibility considerations
+      description: Optional. Would this need extra services or configuration? Could it remain optional without changing existing single-account setups or the claiming workflow? Leave blank if unsure.
+      placeholder: For example, enable it only when explicitly configured. A new channel's failure should not affect claiming or existing notification channels.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Optional. Add related projects, API documentation, screenshots, or links to related issues and pull requests.

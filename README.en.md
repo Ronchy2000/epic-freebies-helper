@@ -39,7 +39,7 @@ If you run into an error, please feel free to open an [Issue](https://github.com
 | Auto login | Signs in to your Epic account automatically |
 | Weekly free games discovery | Fetches and identifies currently claimable free titles |
 | Auto claim | Opens product pages and completes the checkout flow |
-| Claim result notifications | Optionally sends a Telegram run summary |
+| Claim result notifications | Optionally sends a Telegram / WXPush (WeChat) run summary |
 | Multi-account support | Optional; single-account behavior is unchanged when not configured |
 | Captcha handling | Supports login captcha and checkout security checks |
 | Scheduled execution | Runs once every Thursday by default on GitHub Actions and can be adjusted |
@@ -109,6 +109,23 @@ To receive Telegram claim summaries, optionally configure these Secrets:
 | `TELEGRAM_CHAT_ID` | Telegram chat ID |
 
 Both settings must be present before a notification is sent. The message includes run status, current weekly games, newly claimed games, previously owned games, unconfirmed items, and failure reasons. Telegram delivery failures do not affect the claim task; when these settings are absent, the existing behavior is preserved.
+
+To also receive WXPush (WeChat template message) claim summaries, deploy your own [wxpush](https://github.com/frankiejun/wxpush) service first (Cloudflare Workers or Docker), then add these Secrets to the repository:
+
+| Setting | Example value |
+| --- | --- |
+| `WXPUSH_ENDPOINT` | `https://your-worker.workers.dev` (service root is fine; `/wxsend` is appended automatically) |
+| `WXPUSH_TOKEN` | The `API_TOKEN` you set when deploying wxpush |
+
+Optional settings:
+
+| Setting | Example value | Description |
+| --- | --- | --- |
+| `WXPUSH_USERID` | `OPENID1\|OPENID2` | Overrides the wxpush default recipients; when absent, wxpush's `WX_USERID` is used |
+| `WXPUSH_TEMPLATE_ID` | Template ID | Overrides the wxpush default template; when absent, wxpush's `WX_TEMPLATE_ID` is used |
+| `WXPUSH_BASE_URL` | `https://example.com/skin` | Tap-through URL for the template message; when absent, the wxpush `/skin` page is used to view the full content |
+
+WXPush is independent from Telegram and both can be enabled at once. Because WeChat template title fields are limited (about 20 characters, no newlines), the WXPush title is a dense single-line summary carrying the key counts (for example `Epic 周免领取:新领2/共7款`, `Epic 周免领取:新领2 失败1` on partial failure, or `Epic 周免领取失败:<reason>` on total failure); the content carries the full plain-text game list (run status, weekly games, newly claimed games, and so on). WeChat native popups usually show only the first ~20 characters of the content — tap the template message to open the wxpush `/skin` page for the complete list. If your WeChat template's content field is a strict type, an over-long body can fail the whole send (logged only, never affecting the claim task); Telegram remains available for the full summary. WXPush delivery failures do not affect the claim task; when these settings are absent, the existing behavior is preserved.
 
 If shared cloud IP reputation causes unusually difficult hCaptcha challenges, you may optionally add a `BROWSER_PROXY` Secret. Supported forms are `http://username:password@host:port`, `https://...`, `socks4://...`, and `socks5://...`. Without it, browser networking is unchanged. Proxy quality, trust, and cost remain the user's responsibility.
 
@@ -199,9 +216,9 @@ Notes:
 - If `EPIC_ACCOUNTS` contains **no valid lines**, the job falls back only when both `EPIC_EMAIL` and `EPIC_PASSWORD` are configured. Otherwise, it fails with a configuration error before starting a browser with empty credentials.
 - If `EPIC_ACCOUNTS` is set with **some valid and some invalid lines**, the job fails with a configuration error that lists the invalid line numbers. It will not silently skip bad lines and still report success.
 - Email shape is lightly validated, including rejection of path separators and control characters. If a password contains a colon `:`, only the first colon is used as the separator.
-- Each account runs independently: one account's failure does not affect the others. Each account still reuses the current login, hCaptcha, TOTP, Telegram, and browser runtime path.
+- Each account runs independently: one account's failure does not affect the others. Each account still reuses the current login, hCaptcha, TOTP, Telegram, WXPush, and browser runtime path.
 - Each account automatically gets its own isolated browser profile directory keyed by email.
-- Multi-account Telegram messages include a masked account label. Single-account Telegram formatting is unchanged when no label is supplied.
+- Multi-account Telegram / WXPush messages include a masked account label. Single-account formatting is unchanged when no label is supplied.
 - `EPIC_TOTP_SECRET` remains a global setting for now. It fits a shared authenticator secret, or enabling TOTP for only one of the accounts. Per-account TOTP is not supported yet.
 - Multiple accounts run sequentially in one job. Since a single account can take 15-20 minutes, raise the workflow timeout for multiple accounts (see below).
 

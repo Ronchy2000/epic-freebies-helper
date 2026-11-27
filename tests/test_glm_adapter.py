@@ -329,3 +329,18 @@ def test_router_plain_text_drag_multi_remains_upstream_enum_value():
     challenge = ChallengeRouterResult(**payload)
 
     assert challenge.challenge_type.value == "image_drag_multi"
+
+
+def test_area_select_split_tuple_string_list_is_converted():
+    text = '{"answer":["(533","508)","(640","409)","(747","508)"]}'
+
+    payload = _coerce_payload_for_schema(
+        _normalize_glm_payload(_extract_json_payload(text)), ImageAreaSelectChallenge, text
+    )
+    challenge = ImageAreaSelectChallenge(**payload)
+
+    assert [point.model_dump() for point in challenge.points] == [
+        {"x": 533, "y": 508},
+        {"x": 640, "y": 409},
+        {"x": 747, "y": 508},
+    ]

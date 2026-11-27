@@ -1320,3 +1320,255 @@
   - 文本对话和 thinking 模式正常；deepseek-v4-flash 的 JSON 结构化输出正常，deepseek-v4-pro 在 reasoning 消耗完 max_tokens 后可能返回空 content。
   - **结论：DeepSeek V4 无法用于当前 hCaptcha 验证码识别流程，验证码识别仍需 GLM（glm-4.6v）或 Gemini 等多模态模型。**
   - 本地定向测试 `35 passed`，完整测试 `60 passed`，Ruff、变更文件 Black 和 `git diff --check` 均通过。
+
+### 2026-09-06 为 GitHub Issues 增加独立的功能建议入口
+
+- 现象：
+  - Issue #28 的微信通知功能建议使用了 Bug 表单，被要求填写 Actions 运行链接、Fork 可见性和复现步骤，并自动添加了 `bug` 标签。
+- 根因判断：
+  - 仓库仅提供中英文 Bug 表单，且关闭了空白 Issue，缺少专门用于新功能和改进建议的入口。
+- 改动文件：
+  - `.github/ISSUE_TEMPLATE/03-feature-request-zh.yml`
+  - `.github/ISSUE_TEMPLATE/04-feature-request-en.yml`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 新增中英文 Feature 表单，标题使用 `[Feature]` 前缀，并复用仓库已有的 `enhancement` 标签。
+  - 仅要求描述使用场景和期望功能；替代方案、配置兼容性与相关资料为可选项，不要求失败运行链接或复现步骤。
+  - 提醒提交者保护敏感信息，并考虑可选功能对现有单账号配置及领取流程的兼容性；原有 Bug 表单和程序运行逻辑保持不变。
+  - 表单需提交并推送到 GitHub 默认分支后，才会出现在新建 Issue 的模板选择页。
+  - YAML 解析、表单字段及必填项静态检查通过；遵守仓库约定，未执行测试或领取任务。
+
+### 2026-09-06 修复领取阶段 Firefox 失效 frame 导航导致的驱动崩溃
+
+- 现象：
+  - Actions run `33967879331` / job `101311091728` 在登录 hCaptcha 最终成功、Epic 商店会话验证完成后，领取 `Alone With You` 时失败。
+  - `Get` 点击出现 `Device not supported` 弹窗，处理 Continue 时，原始 job 日志中的 Playwright Node 驱动抛出 `TypeError: Cannot read properties of undefined (reading 'childFrames')`；随后 Python 报 `Connection closed while reading from the driver`。
+  - 错误处理中的截图也因驱动断连失败，最终异常变成 `Page.screenshot`，容易被误认为截图或验证码问题。
+- 根因判断：
+  - 此次运行使用 Playwright `1.53.0`、Camoufox Python 包 `0.4.11` 和动态下载的 Camoufox `152.0.4-beta.30`。Firefox 的导航提交事件引用了 frame 表中不存在的对象；Playwright 未做空值检查便访问 `childFrames()`，导致整个驱动退出。迟到的 iframe 导航事件可在本地安装的真实 Node 驱动代码中复现完全相同的堆栈。
+  - Python 层捕获连接异常无法恢复已退出的驱动，增加验证码重试也无法解决该崩溃。
+  - 另发现 `Get` 点击超时或设备弹窗关闭后未在下次点击前检查领取进度，可能重复提交并替换正在加载的 checkout；这是同一链路的独立重试缺口，不能仅凭现有日志认定它就是本次竞态的唯一触发原因。
+- 改动文件：
+  - `app/extensions/playwright_runtime.py`
+  - `app/extensions/playwright_frame_guard.cjs`
+  - `app/services/browser_context.py`
+  - `app/services/epic_games_service.py`
+  - `tests/test_playwright_runtime.py`
+  - `tests/test_browser_runtime_smoke.py`
+  - `tests/test_checkout_state_machine.py`
+  - `docs/advanced.md`
+  - `docs/advanced.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 两个 Firefox 后端启动驱动前加载同一窄范围保护，仅跳过不存在的 frame 的导航提交事件；有效 frame 的原始处理、worker 清理和其他异常保持不变。未修改 `.venv` 文件、全局 Node 环境、模型配置或通知配置。
+  - `Get` 重试前检查 checkout 是否已经推进；若已推进则进入结账观察，不再重复点击。诊断截图增加 5 秒时限并容忍失败，避免覆盖原始领取异常或虚报截图已保存。
+  - 按本次用户明确要求执行测试：修改前基线 `60 passed`；修复后 `EPIC_BROWSER_SMOKE=1 .venv/bin/python -m pytest -q` 为 `70 passed`，包含实际 Node 驱动崩溃复现、有效 frame 行为保留、带空格路径、重复点击防护，以及两个真实浏览器的 iframe 替换检查。
+  - 本地真实 Camoufox 流程复用已有登录态，在 `Get`、设备不支持弹窗、`Add to library` 后确认 `IN LIBRARY`，领取进程 exit code 0；另起浏览器只读核对 Epic 订单历史，确认 `Alone With You` 对应记录存在。
+  - 普通 Playwright Firefox 的真实登录对照仍因登录未完成而失败，未将其转为成功。本次未重新验证全新会话的完整 hCaptcha 登录路径，也未重跑 GitHub Actions；不能把本地结果等同于云端所有网络环境均已通过。
+  - Ruff、Black、Node 语法检查、hCaptcha 协议契约检查及 `git diff --check` 通过；中英文排障文档补充原始驱动日志的定位方法和升级 Playwright 后的复验要求。
+
+### 2026-09-06 增加可选 WXPush 微信通知并隔离通知异常（PR #29）
+
+- 现象：
+  - Issue #28 希望通过微信接收领取结果；原有通知渠道仅支持 Telegram。
+  - PR #29 初版中，错误的 `WXPUSH_ENDPOINT`（如 `https://[broken`）可能在通知异常保护之外触发 URL 解析异常，覆盖领取结果或阻断限流后的正常返回。
+  - 初版未验证响应是否符合 WXPush 成功协议，误配为 `/skin` 页面时，即使接口返回 HTTP 200 HTML、没有发送消息，也可能记录发送成功。
+- 根因判断：
+  - 通知端点仅检查是否包含 `://`，未完整保护地址解析、消息构造及响应读取；HTTP 请求成功也不等同于微信推送成功。
+  - 新渠道必须复用现有领取摘要和账号标签，并保持可选配置，不能把配置错误、网络或推送服务故障转换成领取任务失败。
+- 改动文件：
+  - `app/services/wxpush_notification_service.py`
+  - `app/deploy.py`
+  - `tests/test_wxpush_notification.py`
+  - `.github/workflows/epic-gamer.yml`
+  - `.github/workflows/README.md`
+  - `.github/workflows/README.en.md`
+  - `README.md`
+  - `README.en.md`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 新增面向自托管 `frankiejun/wxpush` 的可选通知渠道。仅在 Token 和可解析的 HTTP(S) 端点同时配置时启用；未配置时不新增通知请求，保持原单账号和 Telegram 路径。
+  - 复用 `CollectionSummary`，向已配置渠道发送同一领取摘要；多账号正文使用现有打码标签。标题限制为 20 字，正文超过 500 字时按行截断并标记；中英文文档说明所需 Secrets、服务部署及微信模板限制。
+  - URL 解析拒绝已识别的非法地址，消息构造、HTTP 发送及响应读取异常均作为通知警告处理。仅接受 JSON 对象中以 `Successfully sent messages` 开头的 `msg` 作为服务端成功确认；HTML、无效 JSON 或未确认成功的响应不再记录成功日志。
+  - 限流仍先发送包含失败原因的摘要，再返回 `rate_limited` 正常结束；不会把限流记为领取成功，其他领取异常仍保持失败。未改动登录、hCaptcha、浏览器或 checkout 业务逻辑，保留 `master` 的 `70354be` 浏览器修复。
+  - 对最新 PR 代码完成静态复审，并核对 WXPush 上游 `/wxsend` 响应协议；Ruff、Black、Python 语法、工作流 YAML 和 `git diff --check` 检查通过。
+  - 按仓库规则，本轮未执行测试或真实微信投递。新增文件包含 29 个测试定义，但仍缺少发送异常、双渠道调度及限流返回值的集成回归覆盖；不能将此前浏览器修复的 70 项测试结果视为本 PR 的验证结果。
+
+### 2026-11-01 修正订单历史核对按 namespace 匹配导致的跨平台误判
+
+- 现象：
+  - 同一款游戏的 PC / Android / iOS SKU 共享同一个 `namespace`。`_is_promotion_in_order_history()` 用 `item.namespace == promotion.namespace or item.offerId == promotion.id` 判断「是否已领取」，只要 `namespace` 命中就直接返回 `True`。
+  - 因此只领到其中一个平台时，其余平台会被误判为已拥有。2026-10-24 实跑复现：iOS 的提交因验证码超时实际失败，却被 Android 的订单记录判成已领取，日志打印「Promotion confirmed via order history」，但商品页仍显示 `Get`、也没有收到订单邮件。
+- 根因判断：
+  - `namespace` 标识的是「哪一款游戏」（PC 与移动端 SKU 共用），`offerId` 才标识「哪一个平台的哪一个售卖单元」。用 `namespace` 做拥有判定等于跨平台混用，OR 关系让误判概率进一步放大。
+  - 这个判定同时用于即时结账后的收尾复核，误判会直接吞掉「其实没领到」的失败，比漏领更难排查。
+- 改动文件：
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 改为 `offerId` 优先精确匹配；仅当 `promotion` 拿不到 `offerId` 时才退回 `namespace` 兜底，保持对旧数据的兼容。
+  - 验证：修复后同一账号里「Android 已领、iOS 未领」的状态不再被判成已拥有；重新提交 iOS 后成功到账（订单历史出现对应 `offerId`、商品页 `In Library`、收到 Epic 订单邮件）。
+  - 纯判据修正，不改动领取、结账、验证码流程；按仓库规则未运行测试；`py_compile` 与 `git diff --check` 通过。
+
+### 2026-10-22 修正商品页购买按钮识别与「已拥有」误判
+
+- 现象：
+  - 商品页找不到购买按钮时，代码会退化成「整页文本扫描 `owned_markers`」，一旦命中就当作已拥有直接跳过。
+  - 慢速线路（实测出口约 100 KB/s）上商品页 hydration 慢，`Get` 按钮常常晚几秒才渲染出来，整页扫描随即命中 `UNAVAILABLE` / `COMING SOON`。
+  - 2026-10-21 的一次运行里，两款从未领取过的周免（`Bad Cheese`、`Agent A: A puzzle in disguise`）都被记录成 `Game already claimed / already in library (page text scan)` 跳过；但订单历史里没有它们，用户书库里也没有。
+  - Epic 商店改版后，商品页购买按钮的 `data-testid="purchase-cta-button"` 已不再出现，实测整页只剩 `ldesc` / `picture` / `teaser-ratings` / `video-rating-overlay` 四个 testid，真实结构是 `button.sidebarBuyButton`。
+- 根因判断：
+  - `page.locator("body").text_content()` 返回的是 DOM `textContent`，**包含 `<script>` 内容**。Epic 商品页内嵌一整本 i18n 字典，含 `Unavailable` / `Coming Soon` / `Add to Library` 字样，于是任何商品页都会命中 `owned_markers`，该分支等于永远返回「已拥有」。
+  - CTA 不可见时没有给 hydration 留时间，把「还没渲染出来」直接当成「页面里没有购买按钮」。
+  - 购买 CTA 选择器只覆盖旧版 testid，页面结构变化后找不到按钮，进一步把这个流程推向文本兜底。
+- 改动文件：
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 新增 `PURCHASE_CTA_SELECTORS`（新版 `sidebarBuyButton` 优先，保留旧 `purchase-cta-button`，再按 `Get` / `Add to Cart` / 中文文案兜底）与 `_find_purchase_cta()`；`_purchase_button_text()`、`_goto_product_page()` 的部分加载判定、`add_promotion_to_cart()` 三处统一改用它。
+  - CTA 不可见时先 `wait_for(state="visible", timeout=12000)`，仍然不可见才进入文本兜底。
+  - 文本兜底从 `text_content()` 改为 `inner_text()`，命中时记录命中的 marker 并把整页 HTML 落盘，便于事后区分「真已拥有」与「没加载完」。
+  - `purchase_debug` 除 `.png` / `.txt` 外新增 `<reason>-<stamp>.html`（`page.content()`），选择器失效时可直接核对真实 DOM。
+  - 跳过语义保持不变：真正已拥有或被禁用的游戏仍会被跳过，只是不再靠整页文本误判。
+  - 按仓库规则未执行测试；改动后 `py_compile`、行宽与 `git diff --check` 复核通过。
+
+### 2026-11-01 修正「会话已失效却判定已登录」导致的空转
+
+- 现象：
+  - 使用持久化浏览器 profile（官方 docker 方式挂载 `./volumes`，会话跨运行复用）时，诊断日志一直显示 `Epic Games is already logged in`，但随后每个周免商品点击 `Get` 都被重定向到 `/id/login/switch-account`，页面上出现登录浮层（class 含 `_takeover_`）拦截所有点击。
+  - 每款商品要消耗 4 种点击策略约 4 分钟，整轮十几分钟才在收尾复核时报错，且报错信息完全指不到「未登录」这个根因。
+- 影响范围（为什么仓库自带的 CI 测不出来）：
+  - 仓库的 GitHub Actions workflow 不缓存 `app/volumes/user_data`，每次运行都是全新 profile，因此每次都会真登录一次，不会触发该路径。
+  - 官方 `docker-compose.yml` 自托管部署会挂载 `./volumes`，浏览器 profile 与账号会话跨运行复用；周免一周一次，两次运行的间隔远超账号层 auth 的 8h / 24h 寿命，所以自托管用户基本**每周必然**命中。
+  - 同一份代码在本机直接 `uv run`（`app/volumes` 同样持久化）也会命中。
+- 根因判断：
+  - `EpicAuthorization.invoke()` 只凭 `egs-navigation@isloggedin == "true"` 判定已登录。该标志反映的是商店 token，而商店 token 由 refresh token 在每次页面加载时自动续期（实测 `EPIC_EG1` 寿命 8 小时且滑动续期、`REFRESH_EPIC_EG1` 一年），账号层 `EPIC_AUTH_*` 才是 8 小时 / 24 小时后失效的那一层。因此失效的会话永远不会触发重新登录。
+  - `EpicAgent._check_orders()` 忽略 `_sync_order_history()` 的返回值：探测失败（拿到登录页 HTML 而不是 JSON）被当成「一条拥有记录都没有」，于是已拥有的周免被重新走一遍领取流程。
+- 改动文件：
+  - `app/services/epic_authorization_service.py`
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - `invoke()` 在 `isloggedin == "true"` 之后用订单历史接口复核账号会话（一次导航，约 2 秒），不通过则回到原有 `_login()` 走一次真登录；复核失败会重试一次，避免网络抖动逼出多余登录。不新增任何登录入口。
+  - `_check_orders()` 在订单历史探测失败时立即抛出 `EpicSessionExpiredError`，并把现场证据（截图、当前 URL、页面文本）落盘到 `runtime/purchase_debug/session_probe_failed-*`，便于事后区分「会话失效」与「接口临时故障」。
+  - 真机验证（自托管 Docker + 持久化 profile）：修复前同一失效 profile 下判定「已登录」后 3 款商品全部空转；修复后日志先出现 `Store reports a logged-in session but the order-history probe rejected it; forcing a fresh login`，随后 `Login success` 并正常领取成功、进程 exit 0，全程 6 分 47 秒，无需人工清理 cookie。
+  - `.env` 与 GitHub Actions 配置未改动；Actions 每次全新 profile 会真登录，行为不受影响。
+  - Ruff（该文件 52 项既有告警）与 Black（两个文件原本就需要重排）结果与改动前基线完全一致，未引入新的静态检查问题；`python -m py_compile` 通过。按仓库规则未运行测试。
+
+### 2026-11-07 修正「全新 profile 登录后商店会话缺失」导致 GitHub Actions 必然失败
+
+- 现象：
+  - 在 GitHub Actions（hosted runner，每次都是全新浏览器 profile）运行 `app/deploy.py` 时，账号层登录成功（`Login success`、`Right account validation success`），但商店页面 `//egs-navigation@isloggedin` 始终是 `false` 或读不到（连续 `Timed out while waiting for //egs-navigation during auth check`），截图里商店页头仍是 `Sign in`。
+  - 认证阶段被 `_ensure_store_session_ready()` 的订单历史兜底判成成功，紧接着 `_should_ignore_task()` 在领取页再次读到 `isloggedin=false`，报 `❌ context cookies is not available`，随后抛出 `RuntimeError: Epic Games session cookies are unavailable after authentication`，整轮失败。
+  - 实测 Actions run 42355705920 两次运行在同一行失败（耗时 636 秒、305 秒），失败点完全一致，属于确定性失败而非验证码偶发。
+  - 实测 Actions run 42355705920 两次运行在同一行失败（耗时 636 秒、305 秒），失败点完全一致，属于确定性失败而非验证码偶发。
+  - 按「点商店 Sign in」思路修一版后重跑（run 42361822421）：衔接代码确实被执行，但日志停在 `Store sign-in hand-off skipped | Sign in control is unavailable`——全新 profile 下商店页头在等待窗口内根本没渲染出 `Sign in` 控件，因此该入口不可靠。
+- 影响范围：
+  - 只影响全新浏览器 profile 的场景（GitHub Actions、全新 Docker volume）。使用持久化 profile 的自托管部署已有 `EPIC_EG1`，不受影响。
+  - 该问题不是本分支此前改动引入的：上游 `master` 同样复现，上游 issue #30 记录的就是同一条失败链。
+- 根因判断：
+  - 账号门户登录只完成了 `client_id=007c0bfe154c4f5396648f013c641dcf`（账号门户）的 OAuth，整条流程从未发起商店 client `875a3b57d3a640a6b7f9b4e883463ab4` 的 OAuth，因此商店 token `EPIC_EG1` 不可能被签发。
+  - 启动商店 OAuth 的入口是商店页头的 `Sign in` 链接；账号已登录时它会先落到 `/id/login/switch-account` 账号选择页，点一下已记录的账号行才会带 code 回跳商店并签发 `EPIC_EG1`。
+  - 探针实测（自托管 profile 副本，删掉 `EPIC_EG1`/`REFRESH_EPIC_EG1` 复现该状态）：点 `Sign in` 后 3 秒进入 `switch-account`，点账号行 6 秒回跳商店，再过 2 秒 `isloggedin=true`，新增 `EPIC_EG1`、`REFRESH_EPIC_EG1`、`refreshTokenExpires`、`bearerTokenHash`，从点击到会话建立约 8 秒。
+  - 因此衔接不必依赖页头控件：`Sign in` 链接指向的 SSO 端点本身可以直连。探针实测（自托管 profile 副本，删掉 `EPIC_EG1`/`REFRESH_EPIC_EG1` 复现该状态）：直接打开 `https://www.epicgames.com/id/login/switch-account?lang=en-US&redirect_uri=...&client_id=<商店 client>`，账号选择页约 20 秒内渲染出账号行，点选后 6 秒回跳商店，随后 `isloggedin=true`，新增 `EPIC_EG1`、`REFRESH_EPIC_EG1`、`refreshTokenExpires`、`bearerTokenHash`。
+- 改动文件：
+  - `app/services/epic_authorization_service.py`
+- 处理结果：
+  - 新增模块级常量 `URL_STORE_SSO`：即商店 `Sign in` 按钮实际跳转的 SSO 端点（`redirect_uri` 指向免单页、`client_id` 为商店 web client），便于在商店页整页未渲染时直接访问，不必依赖页头控件。
+  - 新增 `_establish_store_session()`：先打开 `URL_STORE_SSO`，等待 `/id/login/switch-account` 账号选择页点选已记录的账号（多账号时按 `EPIC_EMAIL` 域名收窄），再轮询 `isloggedin` 直到 `true`。任一环不满足即返回 `False`，不影响已登录 profile 的正常路径。
+  - `_ensure_store_session_ready()` 在两处调用它：读到 `isloggedin=false` 时先尝试衔接，失败再抛出原有错误；`//egs-navigation` 读不到时先尝试衔接，再回退到原有的订单历史探测。
+  - 自托管（持久化 profile）路径不变：`isloggedin` 已为 `true` 时在第一步直接返回，不会额外点击或导航。
+  - Ruff（该文件 10 项既有告警）与 Black 检查结果与改动前基线一致，未引入新的静态检查问题；`python -m py_compile` 通过。按仓库规则未运行测试；Actions 端到端验证需在 fork 的全新 profile 上重跑确认。
+
+### 2026-11-15 修复结账"安全校验"幽灵面板导致领取流程空转失败
+
+- 现象：
+  - 2026-11-14 自托管 Docker（全新 profile）运行，本周免费游戏 `Knightica` 的 PC / Android / iOS 三个 SKU 全部卡在结账安全校验：`Checkout security check detected - starting solve loop` 之后共 46 次 solve attempt，`follow-up outcome after attempt N: security` 46/46，`Cannot find a valid challenge frame` 45 次，最终 `RuntimeError: Failed to confirm claim flow for promotions`（`collect_weekly_games:2233`）。
+  - GitHub Actions（2026-11-07 运行）表现相同，可稳定复现。
+- 影响范围：
+  - 结账弹窗内的 hCaptcha 处于错误或未渲染状态时无法完成领取；与网络、IP 无关（自托管家宽 `14.120.x` 与 runner `57.154.167.x` 表现一致）。
+  - 不影响已有登录态、商店会话衔接与免费游戏发现。
+- 根因判断：
+  - `_is_checkout_security_check_visible()` 只要文本或 hCaptcha iframe "存在"就判定"仍在验证"：结账弹窗常驻一段隐藏兜底模板（`One more step` / `Please complete a security check to continue` / `Session ID …` / `TRY AGAIN`），并且约 300x74 的勾选框 iframe 会命中 `_visible_hcaptcha_frame_urls()`（默认阈值仅 160x40）。
+  - 此时题面其实从未加载（`challenge-view` 内无可见 `<img>`，`Add to library` 已可见，调试抓取到的 hCaptcha frame 文本只有 `Please try again. / Verify / EN`），于是流程反复对一个不存在的题目发起求解，直到超时。
+- 改动文件：
+  - `app/services/epic_games_service.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 新增 `_visible_hcaptcha_challenge_frame_urls()`（250x200 阈值，排除勾选框控件）、`_checkout_submit_visible()`（跨 frame 检查 `Add to library` / `Place Order`）、`_any_challenge_view_visible()`（要求 `challenge-view` 内 `<img>` 可见）。
+  - `_is_checkout_security_check_visible()` 在"无挑战尺寸 iframe + 提交按钮可见 + 无已渲染题面"时判定为已清除并记录 `treating the security check as cleared`；真实题面仍走原有 solve loop，行为不变。
+  - 2026-11-15 14:00 在自托管冷 profile 上以该补丁重跑：`treating the security check as cleared` 出现 14 次，`Checkout security check solved into checkout` 后正常下单，最终 `🎉 Confirmed 3 instant claim(s)`，三个 SKU 均产生订单并收到邮件；未打补丁的 2026-11-14 对照运行在同一路径空转 46 次后失败。
+  - Ruff 与 master 基线一致（42 项，无新增）、Black 新增区域无差异、`py_compile` 通过、`git diff --check` 干净；按仓库规则未执行测试。
+
+### 2026-10-24 新增移动端限免（Android / iOS）领取
+
+- 现象：
+  - Epic 每周除 PC 限免外还提供一款移动端限免，Android 与 iOS 是同一款游戏的两个独立商品页；本项目只读 PC 的 `freeGamesPromotions`，移动端条目从不参与领取。
+- 根因判断：
+  - PC 的 promotion 接口不包含移动端条目，移动端目录只出现在移动端店铺首页接口（`egs-platform-service.store.epicgames.com/api/v2/public/discover/home?platform=android|ios`）。
+  - 该接口拒绝纯 HTTP 客户端（实测 403），必须借已打开的 store 页面上下文发请求。
+  - 移动端商品页（`/p/<slug>-android-<hash>`、`/p/<slug>-ios-<hash>`）的结账链路与 PC 同构，桌面网页即可 0 元领取，不需要模拟器或手机。
+- 改动文件：
+  - `app/services/epic_mobile_service.py`（新增）
+  - `app/services/epic_games_service.py`
+  - `.env.example`
+  - `.github/workflows/epic-gamer.yml`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 新增 `epic_mobile_service`：读取 `EPIC_MOBILE_ANDROID` / `EPIC_MOBILE_IOS`（默认 false，互不影响），在店铺页面上下文里发现当期限免的移动端商品，转换为 `PromotionGame` 追加到待领列表；所有异常在模块内部兜底，失败时退化为只领 PC。
+  - `EpicAgent._check_orders()` 增加一次注入调用，商品页前缀复用既有 `URL_PRODUCT_PAGE`（en-US）；标题追加 `(Android)` / `(iOS)` 以区分同一款游戏的两个 SKU。
+  - 注入点为什么选 `_check_orders()` 而不是 `collect_weekly_games()`：PC 限免全部已拥有时，`collect_epic_games()` 会在调用 `collect_weekly_games()` 之前就打印 “All week-free games are already in the library” 并提前返回，挂在后者的逻辑永远不会执行（2026-10-24 实跑复现）。
+  - 结账、验证码求解、订单历史核对全部复用既有流程，未改动任何判据。
+  - 两个开关默认关闭，关闭时行为与改动前一致；GitHub Actions 通过仓库 Variables 透传，未开启时同样无影响。
+  - 发现请求必须在 `store.epicgames.com` 同源页面里发出：注入点执行时页面可能停在 `accounts.epicgames.com`（订单历史就是直接跳转到原始 JSON 接口），此时页面内 `fetch` 被 CORS 拒绝、`page.request` 被 Cloudflare 403；模块内检测当前域名，必要时临时开一个 store 页做发现，用完即关。
+  - 判重必须按 `offerId` 而不是 `namespace`：同一款游戏的 PC 与移动端 SKU 共享同一个 sandbox/namespace，按下发回来的 `sandboxId` 判重会把没领过的移动端 SKU 误判成「已拥有」（2026-10-24 实跑复现）。
+  - 跨平台判重（同一 namespace 下 PC / Android / iOS 被误判为已拥有）不在此 PR 范围内，另见独立修复 PR。
+  - 已知限制：Android 商品全球可领，iOS 商品 Epic 仅面向欧盟区域提供，非欧盟账号可能在结账时被拒；因此 iOS 开关默认关闭，需先人工验证再开启。
+  - 按仓库规则未执行测试；`py_compile`、`ruff`、`black -C -l 100`、`git diff --check` 复核通过。
+
+
+## 2026-11-27
+
+### 安全加固、CI 恢复、配置报错修复与社区 PR 合并收口（Refs #30, #31, #39, #41, #42, #43；合入 PR #33, #34, #37, #38）
+
+- 现象：
+  - **#41（高危凭据泄露 + 误报已拥有）**：运行异常时 Loguru 默认 `diagnose=True` 展开堆栈局部变量，导致 Epic 账号、密码或 API Key 以明文落盘至控制台及日志产物；商品页未定位到购买按钮或按钮被禁用时，仍可能通过整页文本扫描或无证据 disabled 误报为“已拥有”并跳过。
+  - **#31（购物车与结账资金安全）**：旧版 `_empty_cart()` 会自动点击 `Move to wishlist` 改动用户原有购物车，且即时结账/购物车结账提交前未强制校验结账面板可见总价是否为 0。
+  - **#39 / #42（Actions 必挂）**：GitHub Actions `ubuntu-latest` 迁移至 Ubuntu 26.04 后，锁定的 Playwright 1.53 拒绝在 `ubuntu26.04-x64` 安装 Firefox，工作流在依赖准备阶段即失败。
+  - **#43（GLM 配置报错误导）**：配置 `LLM_PROVIDER=glm` 但 `GLM_API_KEY` 未填或误填至 GitHub Variables 时，父类 `AgentConfig.validate_api_key` 在导入 `settings` 时即抛出 `GEMINI_API_KEY is required`，掩盖真实配置问题，也导致无环境变量时本地 `pytest` 无法收集。
+  - **#30（Camoufox 新版本属性报错 + GLM 点选格式变体 + 并发响应竞争）**：新下载的 Camoufox 二进制移除 `navigator.appCodeName` 后，`camoufox 0.4.11` 抛出 `UnknownProperty` 且未触发降级；GLM 点选偶发返回拆分字符串列表 `["(533", "508)", ...]` 导致 schema 校验失败；空 `/checkcaptcha/` 回调存在与已入队 `pass` 竞争风险。
+  - **PR 集成与细节缺口**：合并 PR #33、#34、#38、#37 后，发现 PR #34 中 `EpicAgent._check_orders()` 调用了不存在的 `self._capture_purchase_debug`、`EpicAuthorization` 与 `epic_totp_service` 中残留 3 处 Playwright 1.53 不兼容的 `is_visible(timeout=...)`、PR #33 的 12 秒渲染等待只等待首个选择器，以及 PC 订单去重尚未与 PR #36 统一为 `offerId` 优先。
+- 根因判断：
+  - Loguru 默认开启变量诊断且缺少全局敏感信息脱敏；异常堆栈直接输出局部变量与原始错误消息。
+  - 结账流程缺少针对非免费购物车与非零总价的硬护栏，拥有判定过度依赖宽泛文本匹配。
+  - `EpicSettings` 未覆盖父类 `AgentConfig` 的必填 `GEMINI_API_KEY` 字段校验器；工作流使用浮动的 `ubuntu-latest` 且未设置同仓库并发互斥组。
+  - `camoufox.utils.validate_config` 对已废弃指纹属性直接抛错；部分旧代码仍向 Playwright 1.53 的 `Locator.is_visible()` 传入 `timeout`。
+- 改动文件：
+  - `app/utils.py`
+  - `app/deploy.py`
+  - `app/settings.py`
+  - `app/services/browser_context.py`
+  - `app/services/epic_authorization_service.py`
+  - `app/services/epic_totp_service.py`
+  - `app/services/epic_games_service.py`
+  - `app/services/epic_mobile_service.py`（来自 PR #37）
+  - `app/extensions/llm_adapter.py`
+  - `app/extensions/hcaptcha_adapter.py`
+  - `.github/workflows/epic-gamer.yml`
+  - `.env.example`（来自 PR #37）
+  - `.gitignore`
+  - `tests/test_log_redaction.py`（新增）
+  - `tests/test_settings_config.py`（新增）
+  - `tests/test_mobile_and_session.py`（新增）
+  - `tests/test_checkout_state_machine.py`
+  - `tests/test_browser_context.py`
+  - `tests/test_glm_adapter.py`
+  - `tests/test_hcaptcha_adapter.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - **日志与凭据安全（#41）**：全量日志输出流（stdout、`runtime.log`、`error.log`）统一设置 `diagnose=False`、`backtrace=False`，通过标准库 `traceback.format_exception` + `redact_sensitive_text()` 对消息与异常堆栈进行双重脱敏（密码、多账号凭据、API Key、TOTP、代理密码、Telegram/WXPush Token 替换为 `***`，邮箱打码）；启动配置日志中对 `EPIC_EMAIL` 打码，并在浏览器启动前做账号与 LLM 凭据完整性校验。
+  - **购买按钮与严格拥有判定（PR #33 + #41）**：`_find_purchase_cta()` 在 12 秒等待期内轮询全部候选选择器；彻底移除整页文本扫描跳过逻辑与无证据 disabled 跳过逻辑，找不到按钮或无所有权文本的禁用按钮仅在订单历史存在对应 `offerId` 时视为已拥有，否则落盘证据并记为未确认失败。
+  - **购物车保护与 0 元结账护栏（#31）**：新增 `EpicUnsafeCheckoutError`；购物车结账前只读检查全部商品卡，发现任意非免费商品立即保留原购物车不动并中止，不再点击 `Move to wishlist`；即时结账与购物车结账提交前均强制校验可见 0 元总价或 `THIS IS FREE`，否则阻断点击并落盘。
+  - **CI 与配置（#39 / #42 / #43）**：工作流固定 `runs-on: ubuntu-24.04`，采纳 PR #27 的 `concurrency` 互斥组防止同账号并发认证，并完善 Actions 失败摘要分类与最近脱敏错误行展示；`EpicSettings` 覆写 `validate_api_key` 允许空值，由 `llm_configuration_error` 输出明确的 Secrets/Variables 配置诊断。
+  - **运行时与 PR 收口（PR #34 / #37 / #38 / #30）**：修正 PR #34 中 `self.epic_games._capture_purchase_debug` 调用路径与多账号选择器匹配优先级；PC 订单预检同步改为 `offerId` 优先匹配；清理 3 处 `is_visible(timeout=...)`；为 Camoufox 增加 `UnknownProperty` 属性过滤保护与降级识别；GLM 点选兼容拆分元组字符串列表；`hcaptcha_adapter` 为 `/checkcaptcha/` 处理增加按实例加锁与已入队 `pass` 保护（不整体合入存在冲突与回归风险的 PR #27）。
+  - **验证结果**（经用户授权运行本地单元测试）：在无任何 API Key 的干净环境下执行 `EPIC_BROWSER_SMOKE=1 .venv/bin/python -m pytest -q`，全部 **128 passed**（含脱敏测试、0 元/购物车护栏、配置测试、移动端/会话测试，以及 Playwright Firefox 与 Camoufox 本地离线 HTML 浏览器 Smoke 测试）；`scripts/check_hcaptcha_contract.py`、`ruff check`、变更文件 `black --check -C -l 100`、`py_compile`、workflow YAML 校验和 `git diff --check` 全部通过。未执行线上真实 Epic 账号登录与 hCaptcha 求解，需推送后或本地配置 `.env` 进行端到端验证。

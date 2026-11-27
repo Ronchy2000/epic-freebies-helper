@@ -31,6 +31,10 @@ from services.telegram_notification_service import (
     send_collection_summary_to_telegram,
     telegram_notifications_enabled,
 )
+from services.wxpush_notification_service import (
+    send_collection_summary_to_wxpush,
+    wxpush_notifications_enabled,
+)
 from settings import LOG_DIR
 from settings import settings
 from utils import init_log
@@ -71,7 +75,7 @@ async def execute_browser_tasks(headless: bool | str = True, *, collect_summary:
     Args:
         headless: Whether to run browser in headless mode
     """
-    logger.debug("Starting Epic Games collection task")
+    logger.info("[Step 1/3] Launching browser context...")
 
     # Configure browser with anti-detection features and video recording
     async with open_browser_context(headless=headless) as browser:
@@ -80,15 +84,15 @@ async def execute_browser_tasks(headless: bool | str = True, *, collect_summary:
         logger.debug("Browser initialized successfully")
 
         # Handle Epic Games authentication
-        logger.debug("Initiating Epic Games authentication")
+        logger.info("[Step 2/3] Authenticating Epic Games account...")
         agent = EpicAuthorization(page)
         is_authenticated = await agent.invoke()
         if not is_authenticated:
             raise RuntimeError("Authentication failed, aborting this run")
-        logger.debug("Authentication completed")
+        logger.success("Authentication completed")
 
         # Execute a free games collection on new page
-        logger.debug("Starting free games collection process")
+        logger.info("[Step 3/3] Checking & claiming weekly free games...")
         game_page = await browser.new_page()
         agent = EpicAgent(game_page)
         if collect_summary:
@@ -108,6 +112,14 @@ async def execute_browser_tasks(headless: bool | str = True, *, collect_summary:
         return summary
 
 
+async def _deliver_collection_summary(summary, *, account_label: str | None = None) -> None:
+    """Fan the claim summary out to every configured notification channel."""
+    if telegram_notifications_enabled():
+        await send_collection_summary_to_telegram(summary, account_label=account_label)
+    if wxpush_notifications_enabled():
+        await send_collection_summary_to_wxpush(summary, account_label=account_label)
+
+
 async def execute_browser_tasks_with_notification(
     headless: bool | str = True, *, account_label: str | None = None
 ) -> str | None:
@@ -115,17 +127,37 @@ async def execute_browser_tasks_with_notification(
         logger.error(configuration_error)
         raise RuntimeError(configuration_error)
 
-    notifications_enabled = telegram_notifications_enabled()
+    email = (settings.EPIC_EMAIL or "").strip()
+    password = settings.EPIC_PASSWORD.get_secret_value().strip()
+    if not email or not password:
+        cred_error = (
+            "Invalid Epic account configuration: EPIC_EMAIL or EPIC_PASSWORD is empty. "
+            "Configure EPIC_EMAIL and EPIC_PASSWORD (or EPIC_ACCOUNTS) in GitHub Actions "
+            "Secrets or in your local .env file."
+        )
+        logger.error(cred_error)
+        raise RuntimeError(cred_error)
+
+    notifications_enabled = telegram_notifications_enabled() or wxpush_notifications_enabled()
     if not notifications_enabled:
-        logger.debug("Telegram notification is not configured; using standard collection flow")
+        logger.debug("No notification channel is configured; using standard collection flow")
+    else:
+        enabled_channels = []
+        if telegram_notifications_enabled():
+            enabled_channels.append("Telegram")
+        if wxpush_notifications_enabled():
+            enabled_channels.append("WXPush")
+        logger.debug("Notification channel(s) enabled: {}", ", ".join(enabled_channels))
 
     try:
         summary = await execute_browser_tasks(
             headless=headless, collect_summary=notifications_enabled
         )
     except Exception as err:
+        # Notify first, then decide whether this failure is a rate limit — the
+        # rate-limited outcome must not swallow the failure notification.
         if notifications_enabled:
-            await send_collection_summary_to_telegram(
+            await _deliver_collection_summary(
                 failure_summary_from_exception(err), account_label=account_label
             )
         if _is_free_game_rate_limit_error(err):
@@ -137,7 +169,7 @@ async def execute_browser_tasks_with_notification(
         raise
 
     if notifications_enabled:
-        await send_collection_summary_to_telegram(summary, account_label=account_label)
+        await _deliver_collection_summary(summary, account_label=account_label)
     return None
 
 
@@ -250,21 +282,44 @@ async def deploy():
     """
     headless = resolve_headless_mode()
 
-    # Log current configuration for debugging
+    # Log sanitized configuration for debugging (never log plaintext email or secrets)
     sj = settings.model_dump(mode="json")
+    if sj.get("EPIC_EMAIL"):
+        sj["EPIC_EMAIL"] = mask_email(str(sj["EPIC_EMAIL"]))
     sj["headless"] = headless
     logger.debug(
         f"Starting deployment with configuration: {json.dumps(sj, indent=2, ensure_ascii=False)}"
     )
+    enabled_channels = []
+    if telegram_notifications_enabled():
+        enabled_channels.append("Telegram")
+    if wxpush_notifications_enabled():
+        enabled_channels.append("WXPush")
+    mobile_summary = "off"
+    with suppress(Exception):
+        from services.epic_mobile_service import enabled_platforms
+
+        mobile_platforms = enabled_platforms()
+        if mobile_platforms:
+            mobile_summary = ",".join(mobile_platforms)
     logger.info(
-        "Effective LLM model routing | provider={} | challenge_classifier={} | "
-        "image_classifier={} | spatial_point_reasoner={} | spatial_path_reasoner={}",
+        "Runtime summary | llm_provider={} | models=({}/{}/{}/{}) | browser_backend={} | "
+        "headless={} | proxy={} | mobile={} | notifications={}",
         settings.LLM_PROVIDER,
         settings.CHALLENGE_CLASSIFIER_MODEL,
         settings.IMAGE_CLASSIFIER_MODEL,
         settings.SPATIAL_POINT_REASONER_MODEL,
         settings.SPATIAL_PATH_REASONER_MODEL,
+        settings.BROWSER_BACKEND,
+        headless,
+        "enabled" if settings.BROWSER_PROXY is not None else "disabled",
+        mobile_summary,
+        ",".join(enabled_channels) if enabled_channels else "none",
     )
+
+    if configuration_error := settings.llm_configuration_error:
+        logger.error(configuration_error)
+        raise RuntimeError(configuration_error)
 
     # Execute an immediate collection task (single- or multi-account)
     await _run_accounts(headless=headless)

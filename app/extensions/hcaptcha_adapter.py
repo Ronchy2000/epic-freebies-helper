@@ -615,6 +615,22 @@ def _build_drag_prompt(user_prompt: str, *, source_points: list[tuple[int, int]]
     return f"{user_prompt}\n\n{details}"
 
 
+def _captcha_response_lock(agent: Any) -> asyncio.Lock:
+    lock = getattr(agent, "_epic_captcha_response_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        agent._epic_captcha_response_lock = lock
+    return lock
+
+
+def _has_queued_captcha_pass(agent: Any) -> bool:
+    queue = getattr(agent, "_captcha_response_queue", None)
+    internal = getattr(queue, "_queue", None)
+    if not internal:
+        return False
+    return any(getattr(item, "is_pass", False) for item in internal)
+
+
 def _cancel_pending_empty_response(agent: Any) -> None:
     pending = getattr(agent, "_epic_empty_response_task", None)
     if pending is not None and not pending.done():
@@ -627,33 +643,38 @@ async def _queue_empty_checkcaptcha_response(
 ) -> bool:
     if "/checkcaptcha/" not in str(getattr(response, "url", "")):
         return False
-    body = await response.body()
-    if body and body.strip():
+    async with _captcha_response_lock(agent):
+        body = await response.body()
+        if body and body.strip():
+            _cancel_pending_empty_response(agent)
+            return False
+
         _cancel_pending_empty_response(agent)
-        return False
+        if _has_queued_captcha_pass(agent):
+            logger.debug("Ignoring empty hCaptcha check response because a pass is already queued")
+            return True
 
-    _cancel_pending_empty_response(agent)
+        async def enqueue_failure_after_grace_period():
+            try:
+                await asyncio.sleep(grace_seconds)
+                async with _captcha_response_lock(agent):
+                    if agent._captcha_response_queue.empty():
+                        agent._captcha_response_queue.put_nowait(
+                            CaptchaResponse.model_validate(
+                                {"pass": False, "error": "empty_checkcaptcha_response"}
+                            )
+                        )
+            except asyncio.CancelledError:
+                return
 
-    async def enqueue_failure_after_grace_period():
-        try:
-            await asyncio.sleep(grace_seconds)
-            if agent._captcha_response_queue.empty():
-                agent._captcha_response_queue.put_nowait(
-                    CaptchaResponse.model_validate(
-                        {"pass": False, "error": "empty_checkcaptcha_response"}
-                    )
-                )
-        except asyncio.CancelledError:
-            return
-
-    agent._epic_empty_response_task = asyncio.create_task(enqueue_failure_after_grace_period())
-    logger.warning(
-        "hCaptcha check returned an empty response; waiting {:.1f}s for the paired result | "
-        "status={}",
-        grace_seconds,
-        getattr(response, "status", "unknown"),
-    )
-    return True
+        agent._epic_empty_response_task = asyncio.create_task(enqueue_failure_after_grace_period())
+        logger.warning(
+            "hCaptcha check returned an empty response; waiting {:.1f}s for the paired result | "
+            "status={}",
+            grace_seconds,
+            getattr(response, "status", "unknown"),
+        )
+        return True
 
 
 def _apply_empty_checkcaptcha_patch() -> None:

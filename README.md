@@ -47,7 +47,7 @@
 | 自动登录 | 自动完成 Epic 账号登录 |
 | 自动发现周免 | 拉取并识别当周可领取游戏 |
 | 自动领取 | 自动进入商品页并完成结账流程 |
-| 领取结果通知 | 可选发送 Telegram 运行摘要 |
+| 领取结果通知 | 可选发送 Telegram / WXPush（微信）运行摘要 |
 | 多账号支持 | 可选；不配置时保持原有单账号行为 |
 | 验证码处理 | 支持登录验证码和 checkout 二次安全校验 |
 | 定时执行 | 默认每周四晚通过 GitHub Actions 运行一次，可自行调整 |
@@ -117,6 +117,23 @@ Fork 之后先打开自己仓库的 `Actions` 页面，进入 `Epic Awesome Game
 | `TELEGRAM_CHAT_ID` | Telegram 聊天 ID |
 
 两个配置需要同时存在才会发送通知。通知包含运行状态、本周游戏、新领取、此前已拥有、未确认成功项目及失败原因。Telegram 发送失败不会影响领取任务；未配置时保持现有行为。
+
+如果还想接收 WXPush（微信模板消息）领取结果通知，需要先自行部署一个 [wxpush](https://github.com/frankiejun/wxpush) 服务（Cloudflare Workers 或 Docker），然后在仓库中额外配置以下 Secrets：
+
+| 配置名 | 示例值 |
+| --- | --- |
+| `WXPUSH_ENDPOINT` | `https://your-worker.workers.dev`（服务根地址即可，程序会自动补全 `/wxsend`） |
+| `WXPUSH_TOKEN` | 部署 wxpush 时设置的 `API_TOKEN` |
+
+可选配置：
+
+| 配置名 | 示例值 | 说明 |
+| --- | --- | --- |
+| `WXPUSH_USERID` | `OPENID1\|OPENID2` | 覆盖 wxpush 默认接收用户；不配置则使用 wxpush 侧的 `WX_USERID` |
+| `WXPUSH_TEMPLATE_ID` | 模板 ID | 覆盖 wxpush 默认模板；不配置则使用 wxpush 侧的 `WX_TEMPLATE_ID` |
+| `WXPUSH_BASE_URL` | `https://example.com/skin` | 点击模板消息后的跳转地址；不配置时默认跳转 wxpush 服务的 `/skin` 页查看完整内容 |
+
+WXPush 与 Telegram 相互独立、可同时启用。受微信模板消息限制（标题字段约 20 字、不支持换行），WXPush 标题为单行浓缩摘要，直接带上关键计数（如 `Epic 周免领取:新领2/共7款`、部分失败时 `Epic 周免领取:新领2 失败1`、全部失败时 `Epic 周免领取失败:原因…`）；正文为完整的纯文本游戏清单（运行状态、本周游戏、本次新领取等分区）。微信原生弹窗通常只显示正文开头约 20 字，点开模板消息会跳转到 wxpush 的 `/skin` 页查看完整清单；若你的微信模板内容字段属严格类型，超长正文可能导致整条发送失败（仅记日志、不影响领取任务），可改用 Telegram 接收完整摘要。WXPush 发送失败不会影响领取任务；未配置时保持现有行为。
 
 如果共享云 IP 导致 hCaptcha 风控明显加重，可选配置 `BROWSER_PROXY` Secret。支持 `http://用户名:密码@主机:端口`、`https://...`、`socks4://...` 和 `socks5://...`；未配置时浏览器网络路径保持不变。代理质量、可信度和费用由使用者自行负责。
 
@@ -206,9 +223,9 @@ user3@example.com:password3
 - 设置了 `EPIC_ACCOUNTS` 但**没有任何合法行**时，仅当 `EPIC_EMAIL` / `EPIC_PASSWORD` 均已配置才回退到原单账号路径；否则立即报告配置错误，不会以空凭据启动浏览器。
 - 设置了 `EPIC_ACCOUNTS` 且**部分行合法、部分行非法**时，任务会直接以配置错误失败（指出非法行号），不会静默跳过某些账号后报成功。
 - 邮箱格式会做轻量校验，并拒绝路径分隔符与控制字符；密码中如果包含冒号 `:`，只会按第一个冒号分割。
-- 每个账号独立运行：一个账号失败不影响其他账号；每个账号仍复用当前的登录、hCaptcha、TOTP、Telegram 与浏览器运行时路径。
+- 每个账号独立运行：一个账号失败不影响其他账号；每个账号仍复用当前的登录、hCaptcha、TOTP、Telegram、WXPush 与浏览器运行时路径。
 - 每个账号自动使用独立的浏览器配置目录（按邮箱隔离），互不干扰。
-- 多账号 Telegram 通知会附带打码后的账号标签；单账号通知格式保持不变。
+- 多账号 Telegram / WXPush 通知会附带打码后的账号标签；单账号通知格式保持不变。
 - 当前 `EPIC_TOTP_SECRET` 仍是全局配置，适合同一验证器密钥，或只给其中一个账号开 TOTP 的场景；按账号拆分 TOTP 还不支持。
 - 多账号是在同一个任务里顺序执行的，账号越多耗时越长。工作流超时时间可以通过仓库变量 `JOB_TIMEOUT_MINUTES` 调整（默认 60 分钟），账号较多时建议调大。
 
