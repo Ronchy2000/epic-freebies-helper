@@ -1,163 +1,239 @@
 #!/usr/bin/env python3
-"""DeepSeek V4 API 直接调用测试脚本。
+"""DeepSeek V4.1 Flash API 直接调用验证脚本。
 
-测试 DeepSeek v4-pro 和 v4-flash 两个模型的：
+从本地 `.env` 或环境变量读取 `DEEPSEEK_API_KEY`，验证 DeepSeek OpenAI 兼容接口的：
 1. 纯文本对话（关闭 thinking）
-2. Thinking/Reasoning 模式
-3. 多模态（图片 + 文本）识别
-4. 尝试多种图片传入方式
+2. Thinking / Reasoning 模式
+3. JSON 结构化输出
+4. 多模态（图片 data URL + JSON 结构化输出）
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import base64
+import io
 import json
+import os
+import struct
 import sys
+import zlib
 from pathlib import Path
 
 import httpx
 
-# DeepSeek API 配置
-API_KEY = "sk-0ad4d0ce9ae045aa980c5842b5a22498"
-BASE_URL = "https://api.deepseek.com"
-MODELS = ["deepseek-v4-pro", "deepseek-v4-flash"]
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional fallback outside project venv
+    load_dotenv = None
 
 
-def _find_test_image() -> str | None:
-    """在项目目录中找一个可用的测试图片。"""
-    candidates = [
-        Path("app/volumes/screenshots"),
-        Path("app/runtime"),
-        Path("docs/images"),
-    ]
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
-        for ext in ("*.png", "*.jpg", "*.jpeg"):
-            for img in sorted(candidate.rglob(ext)):
-                return str(img)
-    return None
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MODEL = "deepseek-flash"
+
+# Prevent pytest from collecting this standalone CLI diagnostic script as a test module.
+__test__ = False
 
 
-def _encode_image_base64(image_path: str) -> str:
-    """将图片编码为 base64 字符串。"""
-    with open(image_path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
+def _mask_secret(secret: str) -> str:
+    if len(secret) <= 8:
+        return "***"
+    return f"{secret[:5]}***{secret[-4:]}"
 
 
-def _encode_image_data_url(image_path: str) -> str:
-    """将图片编码为 base64 data URL。"""
-    data = _encode_image_base64(image_path)
-    ext = Path(image_path).suffix.lower()
-    mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
-    mime_type = mime_map.get(ext, "image/png")
-    return f"data:{mime_type};base64,{data}"
+def _build_synthetic_test_png() -> bytes:
+    """生成本地合成几何测试图（不依赖外部文件，避免误传敏感截图）。"""
+    try:
+        from PIL import Image, ImageDraw
+
+        img = Image.new("RGB", (300, 300), color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse((170, 60, 250, 140), fill=(220, 40, 40))
+        draw.rectangle((40, 180, 120, 260), fill=(40, 90, 220))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        # Fallback: pure-Python 16x16 solid red PNG
+        width, height = 16, 16
+        raw = b"".join(b"\x00" + b"\xdc\x28\x28" * width for _ in range(height))
+
+        def _chunk(tag: bytes, data: bytes) -> bytes:
+            return (
+                struct.pack("!I", len(data))
+                + tag
+                + data
+                + struct.pack("!I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+            )
+
+        ihdr = struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, 0)
+        return (
+            b"\x89PNG\r\n\x1a\n"
+            + _chunk(b"IHDR", ihdr)
+            + _chunk(b"IDAT", zlib.compress(raw))
+            + _chunk(b"IEND", b"")
+        )
 
 
-async def test_text_chat(model: str, client: httpx.AsyncClient) -> dict:
+def _encode_image_data_url(image_path: str | None) -> tuple[str, str]:
+    """将指定图片或合成测试图编码为 base64 data URL。"""
+    if image_path:
+        path = Path(image_path)
+        raw = path.read_bytes()
+        ext = path.suffix.lower()
+        mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+        mime_type = mime_map.get(ext, "image/png")
+        label = path.name
+    else:
+        raw = _build_synthetic_test_png()
+        mime_type = "image/png"
+        label = "synthetic-300x300-shapes.png"
+
+    encoded = base64.b64encode(raw).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}", label
+
+
+def _headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+
+async def check_text_chat(
+    model: str, base_url: str, api_key: str, client: httpx.AsyncClient
+) -> dict:
     """测试纯文本对话（关闭 thinking）。"""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"📝 测试 [{model}] 纯文本对话（thinking=disabled）...")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     payload = {
         "model": model,
-        "messages": [
-            {"role": "user", "content": "请用一句话介绍你自己，说明你是哪个模型。"},
-        ],
+        "messages": [{"role": "user", "content": "请用一句话回复确认连接正常。"}],
         "thinking": {"type": "disabled"},
-        "max_tokens": 200,
+        "max_tokens": 120,
     }
 
     try:
         response = await client.post(
-            f"{BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
+            f"{base_url}/chat/completions", headers=_headers(api_key), json=payload
         )
         response.raise_for_status()
         data = response.json()
 
         content = data["choices"][0]["message"]["content"]
-        reasoning = data["choices"][0]["message"].get("reasoning_content", "")
         usage = data.get("usage", {})
-        print(f"✅ 成功")
+        print("✅ 成功")
         print(f"   回复: {content}")
-        if reasoning:
-            print(f"   推理: {reasoning[:100]}...")
-        print(f"   Token: {json.dumps(usage)}")
-        return {"status": "ok", "model": model, "content": content, "usage": usage}
-    except Exception as e:
-        print(f"❌ 失败: {e}")
-        if hasattr(e, "response") and e.response is not None:
-            print(f"   响应体: {e.response.text[:500]}")
-        return {"status": "error", "model": model, "error": str(e)}
+        print(f"   Token: {json.dumps(usage, ensure_ascii=False)}")
+        return {"test": "text", "status": "ok", "model": model, "content": content, "usage": usage}
+    except Exception as exc:
+        print(f"❌ 失败: {exc}")
+        if hasattr(exc, "response") and exc.response is not None:
+            print(f"   响应体: {exc.response.text[:500]}")
+        return {"test": "text", "status": "error", "model": model, "error": str(exc)}
 
 
-async def test_thinking_mode(model: str, client: httpx.AsyncClient) -> dict:
+async def check_thinking_mode(
+    model: str, base_url: str, api_key: str, client: httpx.AsyncClient
+) -> dict:
     """测试 DeepSeek thinking/reasoning 模式。"""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"🧠 测试 [{model}] Thinking 模式（reasoning_effort=high）...")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     payload = {
         "model": model,
         "messages": [
-            {"role": "user", "content": "一个房间里有3个人，5个人离开，然后又来了2个人。现在房间里有多少人？请一步步推理，最后给出答案。"},
+            {
+                "role": "user",
+                "content": "一个盒子里有 3 个球，拿出 1 个后又放入 4 个，现在有多少个球？只给出简短结论。",
+            }
         ],
         "thinking": {"type": "enabled"},
         "reasoning_effort": "high",
-        "max_tokens": 1000,
+        "max_tokens": 500,
     }
 
     try:
         response = await client.post(
-            f"{BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
+            f"{base_url}/chat/completions", headers=_headers(api_key), json=payload
         )
         response.raise_for_status()
         data = response.json()
 
         message = data["choices"][0]["message"]
-        reasoning = message.get("reasoning_content", "")
-        content = message.get("content", "")
+        reasoning = message.get("reasoning_content", "") or ""
+        content = message.get("content", "") or ""
         usage = data.get("usage", {})
 
-        print(f"✅ 成功")
+        print("✅ 成功")
         if reasoning:
-            print(f"   推理过程: {reasoning[:300]}...")
+            print(f"   推理过程: {reasoning[:200]}...")
         print(f"   最终回答: {content}")
-        print(f"   Token: {json.dumps(usage)}")
+        print(f"   Token: {json.dumps(usage, ensure_ascii=False)}")
         return {
+            "test": "thinking",
             "status": "ok",
             "model": model,
             "content": content,
-            "reasoning": reasoning[:300],
+            "reasoning": reasoning[:200],
             "usage": usage,
         }
-    except Exception as e:
-        print(f"❌ 失败: {e}")
-        if hasattr(e, "response") and e.response is not None:
-            print(f"   响应体: {e.response.text[:500]}")
-        return {"status": "error", "model": model, "error": str(e)}
+    except Exception as exc:
+        print(f"❌ 失败: {exc}")
+        if hasattr(exc, "response") and exc.response is not None:
+            print(f"   响应体: {exc.response.text[:500]}")
+        return {"test": "thinking", "status": "error", "model": model, "error": str(exc)}
 
 
-async def test_multimodal_data_url(model: str, client: httpx.AsyncClient, image_path: str) -> dict:
-    """测试多模态 - data URL 方式。"""
-    print(f"\n{'='*60}")
-    print(f"🖼️  测试 [{model}] 多模态 - data URL 格式...")
-    print(f"   图片: {Path(image_path).name}")
-    print(f"{'='*60}")
+async def check_json_mode(
+    model: str, base_url: str, api_key: str, client: httpx.AsyncClient
+) -> dict:
+    """测试 JSON 结构化输出模式。"""
+    print(f"\n{'=' * 60}")
+    print(f"📋 测试 [{model}] JSON 结构化输出...")
+    print(f"{'=' * 60}")
 
-    data_url = _encode_image_data_url(image_path)
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": '请严格返回 JSON：{"status": "ok", "multimodal_ready": true}',
+            }
+        ],
+        "thinking": {"type": "disabled"},
+        "response_format": {"type": "json_object"},
+        "max_tokens": 120,
+    }
+
+    try:
+        response = await client.post(
+            f"{base_url}/chat/completions", headers=_headers(api_key), json=payload
+        )
+        response.raise_for_status()
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+        parsed = json.loads(content)
+        print("✅ 成功")
+        print(f"   解析结果: {json.dumps(parsed, ensure_ascii=False)}")
+        return {"test": "json", "status": "ok", "model": model, "content": content}
+    except Exception as exc:
+        print(f"❌ 失败: {exc}")
+        if hasattr(exc, "response") and exc.response is not None:
+            print(f"   响应体: {exc.response.text[:500]}")
+        return {"test": "json", "status": "error", "model": model, "error": str(exc)}
+
+
+async def check_multimodal_json(
+    model: str, base_url: str, api_key: str, client: httpx.AsyncClient, image_path: str | None
+) -> dict:
+    """测试多模态 data URL 输入与 JSON 结构化输出。"""
+    data_url, label = _encode_image_data_url(image_path)
+    print(f"\n{'=' * 60}")
+    print(f"🖼️  测试 [{model}] 多模态（image_url data URL + JSON）...")
+    print(f"   图片: {label}")
+    print(f"{'=' * 60}")
 
     payload = {
         "model": model,
@@ -165,179 +241,113 @@ async def test_multimodal_data_url(model: str, client: httpx.AsyncClient, image_
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "请描述这张图片的内容。回答不超过50字。"},
+                    {
+                        "type": "text",
+                        "text": (
+                            "Identify the shapes and colors visible in this image and return a "
+                            'valid JSON object with keys "shapes" (list of strings) and '
+                            '"summary" (short string).'
+                        ),
+                    },
                     {"type": "image_url", "image_url": {"url": data_url}},
                 ],
             }
         ],
-        "max_tokens": 200,
-    }
-
-    try:
-        response = await client.post(
-            f"{BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
-        print(f"✅ 成功")
-        print(f"   回复: {content}")
-        return {"status": "ok", "model": model, "content": content}
-    except Exception as e:
-        print(f"❌ 失败: {e}")
-        if hasattr(e, "response") and e.response is not None:
-            body = e.response.text[:500]
-            print(f"   响应体: {body}")
-            return {"status": "error", "model": model, "error": body}
-        return {"status": "error", "model": model, "error": str(e)}
-
-
-async def test_multimodal_vision_api(model: str, client: httpx.AsyncClient) -> dict:
-    """测试是否有独立的 vision API 端点。"""
-    print(f"\n{'='*60}")
-    print(f"🔍 测试 [{model}] 是否有 /vision 或 /multimodal 端点...")
-    print(f"{'='*60}")
-
-    # 尝试 vision 端点
-    for suffix in ["/vision", "/multimodal", "/v1/vision"]:
-        url = f"{BASE_URL}{suffix}"
-        try:
-            response = await client.get(url, headers={"Authorization": f"Bearer {API_KEY}"})
-            print(f"   {url}: HTTP {response.status_code}")
-        except Exception as e:
-            print(f"   {url}: {e}")
-
-    return {"status": "info", "model": model, "content": "vision API check done"}
-
-
-async def test_json_mode(model: str, client: httpx.AsyncClient) -> dict:
-    """测试 JSON 结构化输出模式。"""
-    print(f"\n{'='*60}")
-    print(f"📋 测试 [{model}] JSON 结构化输出...")
-    print(f"{'='*60}")
-
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": '请以 JSON 格式返回以下信息：{"name": "你的名字", "version": "版本号", "can_see_images": false}',
-            }
-        ],
+        "thinking": {"type": "disabled"},
         "response_format": {"type": "json_object"},
         "max_tokens": 200,
     }
 
     try:
         response = await client.post(
-            f"{BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
+            f"{base_url}/chat/completions", headers=_headers(api_key), json=payload
         )
         response.raise_for_status()
         data = response.json()
         content = data["choices"][0]["message"]["content"]
-        print(f"✅ 成功")
-        print(f"   回复: {content}")
-        try:
-            parsed = json.loads(content)
-            print(f"   解析结果: {json.dumps(parsed)}")
-        except json.JSONDecodeError:
-            print(f"   ⚠️ 无法解析为 JSON")
-        return {"status": "ok", "model": model, "content": content}
-    except Exception as e:
-        print(f"❌ 失败: {e}")
-        if hasattr(e, "response") and e.response is not None:
-            print(f"   响应体: {e.response.text[:500]}")
-        return {"status": "error", "model": model, "error": str(e)}
+        parsed = json.loads(content)
+        usage = data.get("usage", {})
+        print("✅ 成功")
+        print(f"   解析结果: {json.dumps(parsed, ensure_ascii=False)}")
+        print(f"   Token: {json.dumps(usage, ensure_ascii=False)}")
+        return {"test": "multimodal", "status": "ok", "model": model, "content": content}
+    except Exception as exc:
+        print(f"❌ 失败: {exc}")
+        if hasattr(exc, "response") and exc.response is not None:
+            body = exc.response.text[:500]
+            print(f"   响应体: {body}")
+            return {"test": "multimodal", "status": "error", "model": model, "error": body}
+        return {"test": "multimodal", "status": "error", "model": model, "error": str(exc)}
 
 
-async def main():
-    print("🚀 DeepSeek V4 API 直接调用测试")
-    print(f"   API Key: {API_KEY[:20]}...")
-    print(f"   API Base: {BASE_URL}")
-    print(f"   测试模型: {MODELS}")
-
-    # 查找测试图片
-    image_path = _find_test_image()
-    if image_path:
-        print(f"   测试图片: {image_path}")
-    else:
-        print(f"   ⚠️  未找到测试图片，跳过多模态测试")
-
-    results = []
-
-    async with httpx.AsyncClient(timeout=httpx.Timeout(90.0)) as client:
-        for model in MODELS:
-            # 1. 纯文本（关闭 thinking）
-            result = await test_text_chat(model, client)
-            results.append(result)
-
-            # 2. Thinking 模式
-            result = await test_thinking_mode(model, client)
-            results.append(result)
-
-            # 3. JSON 结构化输出
-            result = await test_json_mode(model, client)
-            results.append(result)
-
-            # 4. 多模态测试
-            if image_path:
-                result = await test_multimodal_data_url(model, client, image_path)
-                results.append(result)
-
-        # 5. 检查 vision API 端点
-        result = await test_multimodal_vision_api(MODELS[0], client)
-        results.append(result)
-
-    # 汇总
-    print(f"\n\n{'='*60}")
-    print("📊 测试汇总")
-    print(f"{'='*60}")
-
-    text_ok = [r for r in results if "纯文本" in str(r.get("model", "")) or "文本" in str(r.get("content", ""))]
-    vision_ok = [r for r in results if "multimodal" in str(r.get("error", "") + r.get("content", ""))]
-
-    ok_count = sum(1 for r in results if r["status"] == "ok")
-    fail_count = sum(1 for r in results if r["status"] == "error")
-    info_count = sum(1 for r in results if r["status"] == "info")
-
-    print(f"   总计: {len(results)} 项测试")
-    print(f"   成功: {ok_count} | 失败: {fail_count} | 信息: {info_count}")
-
-    for r in results:
-        status_icon = "✅" if r["status"] == "ok" else ("ℹ️" if r["status"] == "info" else "❌")
-        content_preview = r.get("content", r.get("error", ""))[:80]
-        print(f"   {status_icon} {r['model']}: {content_preview}")
-
-    # 结论
-    print(f"\n{'='*60}")
-    print("📋 结论")
-    print(f"{'='*60}")
-    multimodal_ok = any(
-        r["status"] == "ok" and "multimodal" in r.get("content", "")
-        for r in results
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Verify DeepSeek API text/thinking/multimodal JSON"
     )
-    if not multimodal_ok:
-        print("⚠️  DeepSeek V4 (pro/flash) 不支持多模态（图片输入）")
-        print("    API 返回: unknown variant 'image_url', expected 'text'")
-        print("    这意味着 DeepSeek V4 无法直接用于 hCaptcha 验证码识别")
-        print("    验证码识别需要图片输入能力（vision/multimodal）")
-        print()
-        print("💡 替代方案：")
-        print("    1. 使用支持图片的模型（如 GLM glm-4.6v, Gemini 2.5 Pro）做验证码识别")
-        print("    2. DeepSeek V4 可用于纯文本任务（如挑战类型分类、规则推理）")
-        print("    3. 等待 DeepSeek 官方发布多模态版本")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Model name override (default: DEEPSEEK_MODEL env or deepseek-flash)",
+    )
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        help="Base URL override (default: DEEPSEEK_BASE_URL env or https://api.deepseek.com)",
+    )
+    parser.add_argument(
+        "--image",
+        default=None,
+        help="Optional local image path (defaults to an in-memory synthetic geometric PNG)",
+    )
+    return parser.parse_args()
+
+
+async def main() -> int:
+    if load_dotenv is not None:
+        load_dotenv()
+
+    args = _parse_args()
+    api_key = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
+    if not api_key:
+        print("❌ 缺少 DEEPSEEK_API_KEY，请在本地 .env 或环境变量中配置后再运行。")
+        return 2
+
+    base_url = (args.base_url or os.getenv("DEEPSEEK_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+    model = (args.model or os.getenv("DEEPSEEK_MODEL") or DEFAULT_MODEL).strip()
+
+    print("🚀 DeepSeek V4.1 Flash API 直接调用测试")
+    print(f"   API Key: {_mask_secret(api_key)}")
+    print(f"   API Base: {base_url}")
+    print(f"   测试模型: {model}")
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+        results = [
+            await check_text_chat(model, base_url, api_key, client),
+            await check_thinking_mode(model, base_url, api_key, client),
+            await check_json_mode(model, base_url, api_key, client),
+            await check_multimodal_json(model, base_url, api_key, client, args.image),
+        ]
+
+    ok_count = sum(1 for item in results if item["status"] == "ok")
+    fail_count = sum(1 for item in results if item["status"] == "error")
+    multimodal_ok = any(item["test"] == "multimodal" and item["status"] == "ok" for item in results)
+
+    print(f"\n{'=' * 60}")
+    print("📊 测试汇总")
+    print(f"{'=' * 60}")
+    print(f"   总计: {len(results)} 项 | 成功: {ok_count} | 失败: {fail_count}")
+    for item in results:
+        icon = "✅" if item["status"] == "ok" else "❌"
+        preview = str(item.get("content", item.get("error", ""))).replace("\n", " ")[:80]
+        print(f"   {icon} [{item['test']}] {item['model']}: {preview}")
+
+    print(f"\n{'=' * 60}")
+    if multimodal_ok and fail_count == 0:
+        print(f"✅ [{model}] 纯文本 / Thinking / JSON / 多模态图片输入全部验证通过")
+    elif not multimodal_ok:
+        print(f"❌ [{model}] 多模态图片输入未通过，请检查模型名与接口配置")
     else:
-        print("✅ 多模态支持正常")
+        print(f"⚠️  [{model}] 部分检查失败（失败 {fail_count} 项），请查看上方日志")
 
     return 0 if fail_count == 0 else 1
 

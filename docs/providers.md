@@ -9,7 +9,7 @@
 | Provider | 状态 | 用途 |
 | --- | --- | --- |
 | `glm` | 当前分支可用 | 通过智谱 OpenAI 兼容接口处理验证码 |
-| `deepseek` | 预留占位，暂不启用 | 等官方多模态能力适合当前验证码链路后再启用 |
+| `deepseek` | 当前分支可用 | 通过 DeepSeek OpenAI 兼容接口（`deepseek-flash`，即 DeepSeek-V4.1-Flash-1017）处理验证码 |
 | `gemini` | 当前分支可用 | 通过 Gemini 或 AiHubMix 兼容接口处理验证码 |
 | `openai` | 需要包含 OpenAI provider 的代码版本 | 通过 OpenAI Chat Completions 处理验证码 |
 
@@ -41,39 +41,33 @@
 - 如果 API 无法调用，先检查 API Key、账户状态和接口权限。
 - 使用 GLM 时不需要额外配置 `GEMINI_API_KEY`。
 
-## DeepSeek V4
+## DeepSeek (V4.1 Flash)
 
-当前先不要把 DeepSeek 作为正式 provider 启用。
-这部分配置和代码保留在分支里，目的是等 DeepSeek 官方提供适合当前验证码流程的稳定多模态能力后再继续推进。
+DeepSeek 现已支持多模态视觉输入与 OpenAI 兼容 Chat Completions 接口，可在本分支直接作为正式 provider 启用。
 
-### Secrets
+### 配置项
 
-| Secret | 说明 | 示例 |
-| --- | --- | --- |
-| `LLM_PROVIDER` | 预留值 | `deepseek` |
-| `DEEPSEEK_API_KEY` | 预留占位 | - |
-| `DEEPSEEK_BASE_URL` | 预留接口地址 | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | 预留模型值 | `deepseek-v4-pro` |
-| `DEEPSEEK_THINKING_ENABLED` | 预留占位 | `false` |
-| `DEEPSEEK_REASONING_EFFORT` | 预留占位 | `high` |
+| 配置项 | 存放位置（GitHub Actions） | 说明 | 推荐值 |
+| --- | --- | --- | --- |
+| `LLM_PROVIDER` | Variables（兼容 Secrets） | 固定为 `deepseek` | `deepseek` |
+| `DEEPSEEK_API_KEY` | **Secrets**（勿填 Variables） | DeepSeek API Key | - |
+| `DEEPSEEK_BASE_URL` | Variables（兼容 Secrets） | OpenAI 兼容接口地址 | `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | Variables（兼容 Secrets） | 视觉多模态模型 | `deepseek-flash` |
+| `DEEPSEEK_THINKING_ENABLED` | Variables（兼容 Secrets） | 是否开启推理模式 | `false` |
+| `DEEPSEEK_REASONING_EFFORT` | Variables（兼容 Secrets） | 开启推理模式时的强度 | `high` |
 
-### 当前状态
+### 模型与接口说明
 
-- 当前不建议实际启用 `LLM_PROVIDER=deepseek`。
-- 这组变量仅保留为后续恢复实验时的占位配置。
-- 如果未来 DeepSeek 官方多模态能力成熟，再回到本分支继续启用和验证。
-
-### 模型要求
-
-当前项目的验证码流程依赖图片输入和稳定的多模态响应。
-
-DeepSeek 这条线虽然保留了 OpenAI-compatible 适配草稿，但在官方多模态能力适合这条链路之前，不应视为可运行 provider。
+- 推荐模型名填写 `deepseek-flash`，该模型现已由 `DeepSeek-V4.1-Flash-1017` 提供服务，原生支持 `image_url`（base64 data URL）多模态输入及 `json_object` 结构化输出。
+- 旧模型名 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 虽仍可转发至 `DeepSeek-V4.1-Flash-1017`，但建议统一使用 `deepseek-flash`。
+- 本项目走 OpenAI 兼容端点 `https://api.deepseek.com`（DeepSeek 另提供 Anthropic 兼容端点 `https://api.deepseek.com/anthropic`，但本项目适配器对接的是 `/chat/completions`）。
+- 使用 DeepSeek 时不需要额外配置 `GEMINI_API_KEY`。
 
 ### 注意事项
 
-- 当前不要把 DeepSeek 配置接入正式运行。
-- 如果只是保留配置占位，建议继续使用 `deepseek-v4-pro` 作为文档中的占位模型值。
-- 等 DeepSeek 官方多模态能力适合当前流程后，再重新评估 `DEEPSEEK_THINKING_ENABLED` 和 `DEEPSEEK_REASONING_EFFORT` 的实际建议值。
+- 默认关闭 `DEEPSEEK_THINKING_ENABLED=false` 以降低单次验证码求解延迟；若复杂题目准确率不足，可按需开启 `DEEPSEEK_THINKING_ENABLED=true` 并配合 `DEEPSEEK_REASONING_EFFORT=high`。
+- 在 GitHub Actions 中务必把 `DEEPSEEK_API_KEY` 填在仓库 **Secrets** 中（不要放到 Variables）。
+- 可在本地配置 `.env` 后运行 `uv run python scripts/test_deepseek_api.py` 快速验证纯文本、Thinking、JSON 与多模态图片接口连通性。
 
 ## OpenAI / GPT
 

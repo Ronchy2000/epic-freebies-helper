@@ -12,6 +12,7 @@ def test_exception_tracebacks_and_logs_never_leak_plaintext_credentials(monkeypa
     fake_password = "SuperSecretPassword!987"
     fake_multi_pass = "MultiSecret#456"
     fake_glm_key = "glm-secret-api-key-999"
+    fake_deepseek_key = "sk-deepseek-secret-key-888"
     fake_proxy_pass = "ProxyPass777"
     fake_proxy = f"http://proxyuser:{fake_proxy_pass}@proxy.invalid:8080"
     fake_tg_token = "123456:FakeTelegramBotTokenABC"
@@ -20,6 +21,7 @@ def test_exception_tracebacks_and_logs_never_leak_plaintext_credentials(monkeypa
     monkeypatch.setenv("EPIC_PASSWORD", fake_password)
     monkeypatch.setenv("EPIC_ACCOUNTS", f"second@example.test:{fake_multi_pass}")
     monkeypatch.setenv("GLM_API_KEY", fake_glm_key)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", fake_deepseek_key)
     monkeypatch.setenv("BROWSER_PROXY", fake_proxy)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", fake_tg_token)
 
@@ -46,7 +48,11 @@ def test_exception_tracebacks_and_logs_never_leak_plaintext_credentials(monkeypa
         failing_auth_step()
 
     logger.error(
-        "Direct log test: email={} key={} multi={}", fake_email, fake_glm_key, fake_multi_pass
+        "Direct log test: email={} key={} ds={} multi={}",
+        fake_email,
+        fake_glm_key,
+        fake_deepseek_key,
+        fake_multi_pass,
     )
     logger.complete()
 
@@ -61,6 +67,7 @@ def test_exception_tracebacks_and_logs_never_leak_plaintext_credentials(monkeypa
         fake_password,
         fake_multi_pass,
         fake_glm_key,
+        fake_deepseek_key,
         fake_proxy_pass,
         fake_tg_token,
     )

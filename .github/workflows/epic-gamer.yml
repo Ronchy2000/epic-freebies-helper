@@ -84,13 +84,13 @@ jobs:
           GEMINI_BASE_URL: ${{ secrets.GEMINI_BASE_URL }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL }}
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
-          GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
-GLM_MODEL: ${{ vars.GLM_MODEL || secrets.GLM_MODEL }}
+          GLM_BASE_URL: ${{ vars.GLM_BASE_URL || secrets.GLM_BASE_URL }}
+          GLM_MODEL: ${{ vars.GLM_MODEL || secrets.GLM_MODEL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_BASE_URL: ${{ vars.DEEPSEEK_BASE_URL || secrets.DEEPSEEK_BASE_URL }}
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || secrets.DEEPSEEK_MODEL }}
-          DEEPSEEK_THINKING_ENABLED: ${{ secrets.DEEPSEEK_THINKING_ENABLED }}
-          DEEPSEEK_REASONING_EFFORT: ${{ secrets.DEEPSEEK_REASONING_EFFORT }}
+          DEEPSEEK_THINKING_ENABLED: ${{ vars.DEEPSEEK_THINKING_ENABLED || secrets.DEEPSEEK_THINKING_ENABLED }}
+          DEEPSEEK_REASONING_EFFORT: ${{ vars.DEEPSEEK_REASONING_EFFORT || secrets.DEEPSEEK_REASONING_EFFORT }}
           CHALLENGE_CLASSIFIER_MODEL: ${{ vars.CHALLENGE_CLASSIFIER_MODEL || secrets.CHALLENGE_CLASSIFIER_MODEL }}
           IMAGE_CLASSIFIER_MODEL: ${{ vars.IMAGE_CLASSIFIER_MODEL || secrets.IMAGE_CLASSIFIER_MODEL }}
           SPATIAL_POINT_REASONER_MODEL: ${{ vars.SPATIAL_POINT_REASONER_MODEL || secrets.SPATIAL_POINT_REASONER_MODEL }}
@@ -159,8 +159,8 @@ GLM_MODEL: ${{ vars.GLM_MODEL || secrets.GLM_MODEL }}
               echo
               echo "本次领取未完成：LLM 提供方与 API Key 配置不匹配或未填写。"
               echo
-              echo "- 请确认 \`GLM_API_KEY\`（或 \`GEMINI_API_KEY\`）填在仓库的 **Secrets** 中，而不是 **Variables**。"
-              echo "- 请确认 \`LLM_PROVIDER\`（\`glm\` / \`gemini\`）与实际填写的 API Key 对应。"
+              echo "- 请确认 \`GLM_API_KEY\` / \`DEEPSEEK_API_KEY\` / \`GEMINI_API_KEY\` 填在仓库的 **Secrets** 中，而不是 **Variables**。"
+              echo "- 请确认 \`LLM_PROVIDER\`（\`glm\` / \`deepseek\` / \`gemini\`）与实际填写的 API Key 对应。"
             } >> "$GITHUB_STEP_SUMMARY"
           elif grep -Rqs -E 'Invalid Epic account configuration|EPIC_ACCOUNTS contains no valid entries' app/volumes/logs/ 2>/dev/null; then
             {

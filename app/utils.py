@@ -13,6 +13,7 @@ _SECRET_ENV_KEYS = (
     "EPIC_PASSWORD",
     "EPIC_ACCOUNTS",
     "GLM_API_KEY",
+    "DEEPSEEK_API_KEY",
     "GEMINI_API_KEY",
     "EPIC_TOTP_SECRET",
     "BROWSER_PROXY",
@@ -80,7 +81,13 @@ def _collect_sensitive_replacements() -> list[tuple[str, str]]:
         live_email = (getattr(live_settings, "EPIC_EMAIL", "") or "").strip()
         if "@" in live_email:
             emails.add(live_email)
-        for attr in ("EPIC_PASSWORD", "GLM_API_KEY", "GEMINI_API_KEY", "BROWSER_PROXY"):
+        for attr in (
+            "EPIC_PASSWORD",
+            "GLM_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "GEMINI_API_KEY",
+            "BROWSER_PROXY",
+        ):
             secret_obj = getattr(live_settings, attr, None)
             if secret_obj is not None and hasattr(secret_obj, "get_secret_value"):
                 add_secret(secret_obj.get_secret_value())

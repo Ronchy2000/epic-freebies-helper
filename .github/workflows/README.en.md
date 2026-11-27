@@ -90,18 +90,18 @@ If you use GLM:
 | `GLM_BASE_URL` | Optional, defaults to `https://open.bigmodel.cn/api/paas/v4` |
 | `GLM_MODEL` | Optional, recommended: `glm-4.6v` |
 
-If you want to keep placeholder settings for DeepSeek V4:
+If you use DeepSeek (V4.1 Flash with multimodal support):
 
-| Secret | Description |
+| Setting | Description |
 | --- | --- |
-| `LLM_PROVIDER` | Do not switch to `deepseek` yet |
-| `DEEPSEEK_API_KEY` | Reserved placeholder only |
-| `DEEPSEEK_BASE_URL` | Placeholder value can stay `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | Placeholder value can stay `deepseek-v4-pro` |
-| `DEEPSEEK_THINKING_ENABLED` | Reserved placeholder |
-| `DEEPSEEK_REASONING_EFFORT` | Reserved placeholder |
+| `LLM_PROVIDER` | Set to `deepseek` |
+| `DEEPSEEK_API_KEY` | DeepSeek API key (store in **Secrets**, not Variables) |
+| `DEEPSEEK_BASE_URL` | Optional, defaults to `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | Optional, recommended `deepseek-flash` (served by `DeepSeek-V4.1-Flash-1017`) |
+| `DEEPSEEK_THINKING_ENABLED` | Optional, defaults to `false` |
+| `DEEPSEEK_REASONING_EFFORT` | Optional, defaults to `high` (used when thinking is enabled) |
 
-For now, use only `GLM` or `Gemini / AiHubMix`. The DeepSeek path is being kept as a placeholder until official multimodal support is suitable for this captcha flow.
+You can use `GLM`, `DeepSeek`, or `Gemini / AiHubMix`.
 
 The program also checks these per-task overrides first. If they are not set, they fall back automatically to the active provider's default model:
 
@@ -131,7 +131,7 @@ This repository now includes an adapter layer:
 
 - Gemini / AiHubMix continues to use the existing compatibility patch.
 - GLM is translated automatically into Zhipu's OpenAI-compatible `chat/completions` requests.
-- The DeepSeek V4 branch code keeps an adapter draft, but it is not recommended as an enabled option yet because this captcha flow depends on stable multimodal support.
+- DeepSeek is translated automatically into DeepSeek's OpenAI-compatible multimodal `chat/completions` requests (recommended model: `deepseek-flash`).
 
 That is why GLM here should use a vision-capable model such as `glm-4.6v`, not a plain text coding model.
 If `glm-4.6v-flash` starts returning overload messages such as "the current model is too busy", switching to `GLM_MODEL=glm-4.6v` is usually more stable.

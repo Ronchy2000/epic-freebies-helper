@@ -1572,3 +1572,39 @@
   - **CI 与配置（#39 / #42 / #43）**：工作流固定 `runs-on: ubuntu-24.04`，采纳 PR #27 的 `concurrency` 互斥组防止同账号并发认证，并完善 Actions 失败摘要分类与最近脱敏错误行展示；`EpicSettings` 覆写 `validate_api_key` 允许空值，由 `llm_configuration_error` 输出明确的 Secrets/Variables 配置诊断。
   - **运行时与 PR 收口（PR #34 / #37 / #38 / #30）**：修正 PR #34 中 `self.epic_games._capture_purchase_debug` 调用路径与多账号选择器匹配优先级；PC 订单预检同步改为 `offerId` 优先匹配；清理 3 处 `is_visible(timeout=...)`；为 Camoufox 增加 `UnknownProperty` 属性过滤保护与降级识别；GLM 点选兼容拆分元组字符串列表；`hcaptcha_adapter` 为 `/checkcaptcha/` 处理增加按实例加锁与已入队 `pass` 保护（不整体合入存在冲突与回归风险的 PR #27）。
   - **验证结果**（经用户授权运行本地单元测试）：在无任何 API Key 的干净环境下执行 `EPIC_BROWSER_SMOKE=1 .venv/bin/python -m pytest -q`，全部 **128 passed**（含脱敏测试、0 元/购物车护栏、配置测试、移动端/会话测试，以及 Playwright Firefox 与 Camoufox 本地离线 HTML 浏览器 Smoke 测试）；`scripts/check_hcaptcha_contract.py`、`ruff check`、变更文件 `black --check -C -l 100`、`py_compile`、workflow YAML 校验和 `git diff --check` 全部通过。未执行线上真实 Epic 账号登录与 hCaptcha 求解，需推送后或本地配置 `.env` 进行端到端验证。
+
+## 2026-11-28
+
+### `add-deepseekv4-provider` 分支同步最新 `master` 修复并升级至 DeepSeek V4.1 Flash（`deepseek-flash`）
+
+- 现象：
+  - `origin/add-deepseekv4-provider` 落后于最新 `master` 修复与社区 PR 合并结果，且旧合入提交在 `app/extensions/llm_adapter.py` 与 `.github/workflows/epic-gamer.yml` 残留缩进语法错误。
+  - DeepSeek 默认模型仍为旧占位值 `deepseek-v4-pro`，文档仍标注 DeepSeek 不支持多模态、暂不启用；`app/utils.py` 未把 `DEEPSEEK_API_KEY` 加入日志脱敏名单；`scripts/test_deepseek_api.py` 硬编码了旧 API Key 且会被 `pytest` 误收集。
+- 根因判断：
+  - DeepSeek 现已升级至 `DeepSeek-V4.1-Flash-1017`（统一模型名 `deepseek-flash`），OpenAI 兼容端点 `https://api.deepseek.com/chat/completions` 已原生支持 `image_url`（base64 data URL）多模态输入、`response_format={"type": "json_object"}` 与 `thinking` 开关；但旧分支代码与文档尚未同步并清理历史合并缺陷。
+- 改动文件：
+  - `app/settings.py`
+  - `app/extensions/llm_adapter.py`
+  - `app/utils.py`
+  - `.github/workflows/epic-gamer.yml`
+  - `.env.example`
+  - `docker/docker-compose.yaml`
+  - `scripts/test_deepseek_api.py`
+  - `docs/providers.md`
+  - `docs/local-debug.md`
+  - `.github/workflows/README.md`
+  - `.github/workflows/README.en.md`
+  - `tests/test_deepseek_adapter.py`（新增）
+  - `tests/test_settings_config.py`
+  - `tests/test_log_redaction.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 先将 `master` 最新提交（`6fdfbdf`）合并至 `add-deepseekv4-provider`（`abaf755`），完整继承日志脱敏、0 元结账与购物车保护、Ubuntu 24.04 runner、Camoufox 降级、PR #33/#34/#37/#38 修复。
+  - 修正旧分支合并残留：`app/extensions/llm_adapter.py` 缩进语法错误、恢复 `_GLMAsyncModels` 兼容子类与 GLM `data_url_images=True`、限定 `_glm_thinking_payload` 仅对 GLM 生效、修正 `.github/workflows/epic-gamer.yml` 中 `GLM_MODEL` 缩进并支持 DeepSeek 非敏感变量 `vars.* || secrets.*`。
+  - 升级 DeepSeek 配置与适配：`DEEPSEEK_MODEL` 默认值改为 `deepseek-flash`，新增 `DEEPSEEK_REQUEST_TIMEOUT_SECONDS=50.0` 与独立超时报错标签；为 DeepSeek 请求在带 `response_schema` 时自动注入 Pydantic JSON Schema 指令（确保始终满足 `json_object` 提示要求并提高字段命中率）；`apply_deepseek_patch()` 接入重试预算限制；`app/utils.py` 新增 `DEEPSEEK_API_KEY` 日志脱敏。
+  - 清理 `scripts/test_deepseek_api.py` 中的旧硬编码 Key，改为从本地 `.env` / 环境变量读取并打码展示，默认使用内存合成几何图测试纯文本、Thinking、JSON 与多模态 `image_url` + JSON，并阻止 `pytest` 误收集。
+  - 更新 `docs/providers.md`、`docs/local-debug.md`、`.env.example`、`docker/docker-compose.yaml` 与 workflow README 文档为 `deepseek-flash` 可用配置说明。
+  - **验证结果**（经用户授权运行本地测试，并使用合成几何 PNG 做接口连通性验证，不涉及任何真实验证码）：
+    - 实测 `scripts/test_deepseek_api.py` 连接 `https://api.deepseek.com` 调用 `deepseek-flash`：纯文本、Thinking（`reasoning_effort=high`）、JSON、多模态（`image_url` data URL + JSON）4/4 全部 HTTP 200 通过。
+    - 实测 `DeepSeekCompatibleGenAIClient` 完整链路（`aio.files.upload` + `aio.models.generate_content` + `ImageAreaSelectChallenge` Schema）识别 300×300 合成图红色圆心，准确返回 `parsed_point=(210, 100)`。
+    - 执行 `EPIC_BROWSER_SMOKE=1 .venv/bin/python -m pytest -q`，全部 **138 passed**；`scripts/check_hcaptcha_contract.py`、`ruff check`、`black --check -C -l 100`、`py_compile`、YAML 校验、密钥扫描与 `git diff --check` 全部通过。未执行真实 Epic 账号登录与线上 hCaptcha 求解。

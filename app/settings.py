@@ -68,14 +68,18 @@ class EpicSettings(AgentConfig):
         default="https://api.deepseek.com", description="DeepSeek OpenAI-compatible base URL"
     )
 
-    DEEPSEEK_MODEL: str = Field(default="deepseek-v4-pro", description="DeepSeek V4 default model")
+    DEEPSEEK_MODEL: str = Field(
+        default="deepseek-flash",
+        description="DeepSeek multimodal default model (DeepSeek-V4.1-Flash-1017)",
+    )
+    DEEPSEEK_REQUEST_TIMEOUT_SECONDS: float = Field(default=50.0, gt=5.0, le=120.0)
 
     DEEPSEEK_THINKING_ENABLED: bool = Field(
-        default=False, description="Enable DeepSeek V4 thinking mode for captcha requests"
+        default=False, description="Enable DeepSeek thinking mode for captcha requests"
     )
 
     DEEPSEEK_REASONING_EFFORT: str = Field(
-        default="high", description="DeepSeek V4 reasoning effort when thinking mode is enabled"
+        default="high", description="DeepSeek reasoning effort when thinking mode is enabled"
     )
 
     BROWSER_BACKEND: str = Field(
@@ -248,8 +252,8 @@ class EpicSettings(AgentConfig):
         if provider == "deepseek" and self.DEEPSEEK_API_KEY is None:
             return (
                 "Invalid LLM configuration: LLM_PROVIDER=deepseek but DEEPSEEK_API_KEY is empty. "
-                "Set DEEPSEEK_API_KEY in GitHub Actions Secrets, or switch LLM_PROVIDER to glm "
-                "or gemini if you intend to use another provider."
+                "Add DEEPSEEK_API_KEY under GitHub Actions Secrets (not Variables) or in .env, "
+                "or switch LLM_PROVIDER to glm or gemini if you intend to use another provider."
             )
 
         return None

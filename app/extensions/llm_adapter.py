@@ -1066,13 +1066,15 @@ class _OpenAICompatibleAsyncModels:
         provider_name: str,
         api_key_attr: str,
         base_url_attr: str,
-        data_url_images: bool,
+        timeout_attr: str = "GLM_REQUEST_TIMEOUT_SECONDS",
+        data_url_images: bool = True,
     ):
         self._settings = settings
         self._storage = storage
         self._provider_name = provider_name
         self._api_key_attr = api_key_attr
         self._base_url_attr = base_url_attr
+        self._timeout_attr = timeout_attr
         self._data_url_images = data_url_images
 
     def _to_image_part(self, payload: bytes, mime_type: str) -> dict[str, Any]:
@@ -1138,6 +1140,17 @@ class _OpenAICompatibleAsyncModels:
             elif "points" in response_fields:
                 system_messages.append(GLM_MULTI_TARGET_INSTRUCTION)
 
+        schema = getattr(config, "response_schema", None)
+        if self._provider_name == "DeepSeek" and schema is not None:
+            if isinstance(schema, type) and issubclass(schema, BaseModel):
+                schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=False)
+                system_messages.append(
+                    "Return only a valid JSON object conforming strictly to this JSON Schema:\n"
+                    f"{schema_json}"
+                )
+            else:
+                system_messages.append("Return only a valid JSON object matching the schema.")
+
         if system_messages:
             messages.insert(0, {"role": "system", "content": "\n\n".join(system_messages)})
 
@@ -1158,13 +1171,16 @@ class _OpenAICompatibleAsyncModels:
         if getattr(config, "response_schema", None) is not None:
             payload["response_format"] = {"type": "json_object"}
 
-if thinking_payload := _glm_thinking_payload(model, config):
-            payload["thinking"] = thinking_payload
+        if self._provider_name == "GLM":
+            if thinking_payload := _glm_thinking_payload(model, config):
+                payload["thinking"] = thinking_payload
 
         if self._provider_name == "DeepSeek":
             thinking_enabled = bool(getattr(self._settings, "DEEPSEEK_THINKING_ENABLED", False))
             payload["thinking"] = {"type": "enabled" if thinking_enabled else "disabled"}
-            reasoning_effort = str(getattr(self._settings, "DEEPSEEK_REASONING_EFFORT", "") or "")
+            reasoning_effort = (
+                str(getattr(self._settings, "DEEPSEEK_REASONING_EFFORT", "") or "").strip().lower()
+            )
             if thinking_enabled and reasoning_effort in {"high", "max"}:
                 payload["reasoning_effort"] = reasoning_effort
 
@@ -1279,7 +1295,10 @@ if thinking_payload := _glm_thinking_payload(model, config):
             "Content-Type": "application/json",
         }
 
-        request_timeout = float(self._settings.GLM_REQUEST_TIMEOUT_SECONDS)
+        request_timeout = float(
+            getattr(self._settings, self._timeout_attr, None)
+            or getattr(self._settings, "GLM_REQUEST_TIMEOUT_SECONDS", 50.0)
+        )
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(request_timeout, connect=min(30.0, request_timeout))
         ) as client:
@@ -1287,7 +1306,7 @@ if thinking_payload := _glm_thinking_payload(model, config):
                 response = await client.post(endpoint, headers=headers, json=payload)
             except httpx.TimeoutException as err:
                 raise TimeoutError(
-                    f"GLM request timed out after {request_timeout:g} seconds "
+                    f"{self._provider_name} request timed out after {request_timeout:g} seconds "
                     f"({type(err).__name__})"
                 ) from err
             if response.is_error:
@@ -1300,6 +1319,32 @@ if thinking_payload := _glm_thinking_payload(model, config):
         return _PatchedResponse(text=text, parsed=parsed, raw=data)
 
 
+class _GLMAsyncModels(_OpenAICompatibleAsyncModels):
+    def __init__(self, settings: Any, storage: dict[str, dict[str, Any]]):
+        super().__init__(
+            settings,
+            storage,
+            provider_name="GLM",
+            api_key_attr="GLM_API_KEY",
+            base_url_attr="GLM_BASE_URL",
+            timeout_attr="GLM_REQUEST_TIMEOUT_SECONDS",
+            data_url_images=True,
+        )
+
+
+class _DeepSeekAsyncModels(_OpenAICompatibleAsyncModels):
+    def __init__(self, settings: Any, storage: dict[str, dict[str, Any]]):
+        super().__init__(
+            settings,
+            storage,
+            provider_name="DeepSeek",
+            api_key_attr="DEEPSEEK_API_KEY",
+            base_url_attr="DEEPSEEK_BASE_URL",
+            timeout_attr="DEEPSEEK_REQUEST_TIMEOUT_SECONDS",
+            data_url_images=True,
+        )
+
+
 class _OpenAICompatibleAsyncNamespace:
     def __init__(
         self,
@@ -1309,6 +1354,7 @@ class _OpenAICompatibleAsyncNamespace:
         provider_name: str,
         api_key_attr: str,
         base_url_attr: str,
+        timeout_attr: str,
         uri_scheme: str,
         data_url_images: bool,
     ):
@@ -1319,6 +1365,7 @@ class _OpenAICompatibleAsyncNamespace:
             provider_name=provider_name,
             api_key_attr=api_key_attr,
             base_url_attr=base_url_attr,
+            timeout_attr=timeout_attr,
             data_url_images=data_url_images,
         )
 
@@ -1334,8 +1381,9 @@ class GLMCompatibleGenAIClient:
             provider_name="GLM",
             api_key_attr="GLM_API_KEY",
             base_url_attr="GLM_BASE_URL",
+            timeout_attr="GLM_REQUEST_TIMEOUT_SECONDS",
             uri_scheme="glm-local",
-            data_url_images=False,
+            data_url_images=True,
         )
 
 
@@ -1350,6 +1398,7 @@ class DeepSeekCompatibleGenAIClient:
             provider_name="DeepSeek",
             api_key_attr="DEEPSEEK_API_KEY",
             base_url_attr="DEEPSEEK_BASE_URL",
+            timeout_attr="DEEPSEEK_REQUEST_TIMEOUT_SECONDS",
             uri_scheme="deepseek-local",
             data_url_images=True,
         )
@@ -1454,8 +1503,13 @@ def apply_deepseek_patch(settings: Any):
         from google import genai
 
         genai.Client = DeepSeekCompatibleGenAIClient
+        if not _limit_glm_provider_attempts():
+            logger.warning("DeepSeek provider retry budget could not be configured")
         logger.info(
-            f"🚀 DeepSeek 兼容补丁已应用 | 模型: {settings.DEEPSEEK_MODEL} | 地址: {settings.DEEPSEEK_BASE_URL}"
+            "🚀 DeepSeek 兼容补丁已应用 | 模型: {} | 地址: {} | thinking={}",
+            settings.DEEPSEEK_MODEL,
+            settings.DEEPSEEK_BASE_URL,
+            bool(getattr(settings, "DEEPSEEK_THINKING_ENABLED", False)),
         )
     except Exception as exc:
         logger.error(f"❌ DeepSeek 兼容补丁加载失败: {exc}")
@@ -1464,6 +1518,11 @@ def apply_deepseek_patch(settings: Any):
 def apply_llm_patch(settings: Any):
     provider = settings.LLM_PROVIDER.lower()
     if provider == "deepseek":
+        if not settings.DEEPSEEK_API_KEY:
+            logger.error(
+                "LLM provider misconfigured | LLM_PROVIDER=deepseek but DEEPSEEK_API_KEY is empty"
+            )
+            return
         apply_deepseek_patch(settings)
         return
     if provider == "glm":
